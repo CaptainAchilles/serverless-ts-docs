@@ -4,23 +4,18 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "tsc ast.ts && node ast.js",
+    "start": "tsc",
     "dox": "tsc dox.ts && node dox.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/deep-extend": "^0.4.31",
     "@types/node": "^13.11.1",
     "typescript": "^3.8.3"
   },
   "dependencies": {
-    "deep-extend": "^0.6.0",
-    "ts-dox": "0.0.7",
-    "ts-json-schema-generator": "^0.65.0",
-    "ts-morph": "^7.0.2",
-    "ts-to-json": "^0.64.8",
-    "typedoc": "^0.17.4",
-    "typescript-json-schema": "^0.42.0"
+    "deep-extend": "^0.6.0"
   }
 }

@@ -1,0 +1,5 @@
+- Few tests
+- Clean up enum types where possible
+- Readme
+- Pipe to openAPI file
+- Get inline types working :/ 

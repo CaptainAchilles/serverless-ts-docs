@@ -1,97 +1,41 @@
 "use strict";
-exports.__esModule = true;
-var ts = require("typescript");
-var path = require("path");
-var extend = require("deep-extend");
-/** True if this is visible outside this file, false otherwise */
-function isNodeExported(node) {
-    return ((ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0
-    //|| (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile)
-    );
-}
-function matches(node, identifier) {
-    if (!isNodeExported(node)) {
-        return undefined;
-    }
-    if (ts.isFunctionDeclaration(node)
-        && node.name.text.trim() === identifier) {
-        return node;
-    }
-    else if (ts.isVariableDeclaration(node) &&
-        node.name.getFullText().trim() === identifier) {
-        var found = node.getChildren().find(function (x) { return ts.isArrowFunction(x); });
-        if (found) {
-            return found;
-        }
-        return undefined;
-    }
-}
-function findExportHandler(parent, identifier, done) {
-    parent.forEachChild(function (node) {
-        var found = matches(node, identifier);
-        found ? done(found) : findExportHandler(node, identifier, done);
-    });
-}
-/**
- * Prints out particular nodes from a source file
- *
- * @param file a path to a file
- * @param identifier top level identifiers available
- */
-function extract(file, identifier) {
-    // Create a Program to represent the project, then pull out the
-    // source file to parse its AST.
-    var program = ts.createProgram([file], {
-        allowJs: true
-    });
-    var sourceFile = program.getSourceFile(file);
-    // Init the type checker
-    var typeChecker = program.getTypeChecker();
-    // To give constructive error messages, keep track of found and un-found identifiers
-    var unresolvedNodes = [];
-    var foundNodes = [];
-    // Loop through the root AST nodes of the file
-    ts.forEachChild(sourceFile, function (node) {
-        var found = matches(node, identifier);
-        if (found) {
-            foundNodes.push(processNode(typeChecker, file, found));
-        }
-        else {
-            findExportHandler(node, identifier, function (exportHandler) {
-                foundNodes.push(processNode(typeChecker, file, exportHandler));
-            });
-        }
-    });
-    // Either print the found nodes, or offer a list of what identifiers were found
-    if (!foundNodes.length) {
-        console.log("Could not find '" + identifier + "' in " + file + ", found: " + unresolvedNodes.filter(function (f) { return f[0]; }).map(function (f) { return f[0]; }).join(", ") + ". (Have your exported a '" + identifier + "' function?)");
-        process.exitCode = 1;
-    }
-    else {
-        foundNodes.map(function (f) {
-            console.log(JSON.stringify(f, null, 4));
-        });
-    }
-}
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+var ts = __importStar(require("typescript"));
+var path = __importStar(require("path"));
+var deep_extend_1 = __importDefault(require("deep-extend"));
 function getFunctionComments(node) {
-    // const [commentRange] = ts.getLeadingCommentRanges(node.getSourceFile().getFullText(), node.getFullStart())
-    // const comment = node.getSourceFile().getFullText().slice(commentRange.pos, commentRange.end)
-    // console.log(comment)
-    //console.log((node as any).jsDoc[0].comment)
     var jsDocTags = ts.getJSDocTags(node);
     return jsDocTags[0].parent.comment;
-    // console.log((jsDocTags[0].parent as any).comment);
 }
 function processNode(typeChecker, file, node) {
     var _a = getFunctionComments(node).split("\n"), summary = _a[0], description = _a[1];
+    if (!node.type) {
+        throw new Error("Found function does not have a `type`: " + node.getFullText());
+    }
     return {
         path: path.relative(__dirname, path.join(__dirname, file)),
         summary: summary,
         description: description,
-        inputType: node.parameters.map(function (param) { return serialiseType(typeChecker, param.type); }),
+        inputType: node.parameters.map(function (param) {
+            if (!param.type) {
+                throw new Error("Node parameter does not have a `type`: " + param.getFullText());
+            }
+            return serialiseType(typeChecker, param.type);
+        }),
         returns: serialiseType(typeChecker, node.type)
     };
 }
+exports.processNode = processNode;
 var heritageTypeParams = new Map();
 function serialiseType(typeChecker, type) {
     var typeNodeSchema = {};
@@ -103,17 +47,19 @@ function serialiseType(typeChecker, type) {
                 heritageTypeParams.set(symbol, type.typeArguments);
             }
             var declarations = symbol.getDeclarations();
-            for (var i = 0; i < declarations.length; i++) {
-                var declaration = declarations[i];
-                if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
-                    if (type.typeArguments) {
-                        for (var _i = 0, _a = declaration.typeParameters; _i < _a.length; _i++) {
-                            var typeParam = _a[_i];
-                            heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments);
+            if (declarations) {
+                for (var i = 0; i < declarations.length; i++) {
+                    var declaration = declarations[i];
+                    if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
+                        if (type.typeArguments && declaration.typeParameters) {
+                            for (var _i = 0, _a = declaration.typeParameters; _i < _a.length; _i++) {
+                                var typeParam = _a[_i];
+                                heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments);
+                            }
                         }
                     }
+                    deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, declaration));
                 }
-                extend(typeNodeSchema, serialiseType(typeChecker, declaration));
             }
         }
     }
@@ -121,20 +67,22 @@ function serialiseType(typeChecker, type) {
         if (type.typeArguments) {
             for (var _b = 0, _c = type.typeArguments; _b < _c.length; _b++) {
                 var typeNode = _c[_b];
-                extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
+                deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
             }
         }
     }
     else if (ts.isIdentifier(type)) {
         var typeReferenceShape = typeChecker.getTypeAtLocation(type);
         var declarations = typeReferenceShape.symbol.getDeclarations();
-        for (var _d = 0, declarations_1 = declarations; _d < declarations_1.length; _d++) {
-            var declaration = declarations_1[_d];
-            extend(typeNodeSchema, serialiseType(typeChecker, declaration));
+        if (declarations) {
+            for (var _d = 0, declarations_1 = declarations; _d < declarations_1.length; _d++) {
+                var declaration = declarations_1[_d];
+                deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, declaration));
+            }
         }
     }
     else if (ts.isTypeAliasDeclaration(type)) {
-        extend(typeNodeSchema, serialiseType(typeChecker, type.type));
+        deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, type.type));
     }
     else if (ts.isPropertySignature(type)) {
         typeNodeSchema[type.name.getText()] = serialiseType(typeChecker, type.type);
@@ -142,7 +90,7 @@ function serialiseType(typeChecker, type) {
     else if (ts.isTypeLiteralNode(type)) {
         for (var _e = 0, _f = type.members; _e < _f.length; _e++) {
             var member = _f[_e];
-            extend(typeNodeSchema, serialiseType(typeChecker, member));
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, member));
         }
     }
     else if (ts.isInterfaceDeclaration(type)) {
@@ -151,13 +99,13 @@ function serialiseType(typeChecker, type) {
                 var heritage = _h[_g];
                 for (var _j = 0, _k = heritage.types; _j < _k.length; _j++) {
                     var typeNode = _k[_j];
-                    extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
+                    deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
                 }
             }
         }
         for (var _l = 0, _m = type.members; _l < _m.length; _l++) {
             var member = _m[_l];
-            extend(typeNodeSchema, serialiseType(typeChecker, member));
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, member));
         }
     }
     else if (ts.isIndexedAccessTypeNode(type)) {
@@ -166,7 +114,7 @@ function serialiseType(typeChecker, type) {
     else if (ts.isIntersectionTypeNode(type)) {
         for (var _o = 0, _p = type.types; _o < _p.length; _o++) {
             var typeNode = _p[_o];
-            extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
         }
     }
     else if (ts.isTypeParameterDeclaration(type)) {
@@ -215,7 +163,7 @@ function typeName(typeChecker, node) {
         var isBoolean = [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.BooleanKeyword].includes(node.literal.kind);
         return {
             type: isBoolean ? "boolean" : "string",
-            "enum": [isBoolean ? (node.getText() === "false" ? false : true) : node.getText()]
+            enum: [isBoolean ? (node.getText() === "false" ? false : true) : node.getText()]
         };
     }
     switch (node.kind) {
@@ -238,8 +186,3 @@ function typeName(typeChecker, node) {
     console.error("Type not handled:", node.kind, ts.SyntaxKind[node.kind], node.getText());
     return "";
 }
-// Run the extract function with the script's arguments
-extract("./handlers/handler.inline.ts", "handler");
-//extract("./handlers/handler.typeRef.ts", "handler");
-extract("./handlers/handler.separate.export.ts", "handler");
-//extract("./handlers/handler.function.ts", "handler");
