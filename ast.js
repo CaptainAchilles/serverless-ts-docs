@@ -5,8 +5,32 @@ var path = require("path");
 var extend = require("deep-extend");
 /** True if this is visible outside this file, false otherwise */
 function isNodeExported(node) {
-    return ((ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0 ||
-        (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile));
+    return ((ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0
+    //|| (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile)
+    );
+}
+function matches(node, identifier) {
+    if (!isNodeExported(node)) {
+        return undefined;
+    }
+    if (ts.isFunctionDeclaration(node)
+        && node.name.text.trim() === identifier) {
+        return node;
+    }
+    else if (ts.isVariableDeclaration(node) &&
+        node.name.getFullText().trim() === identifier) {
+        var found = node.getChildren().find(function (x) { return ts.isArrowFunction(x); });
+        if (found) {
+            return found;
+        }
+        return undefined;
+    }
+}
+function findExportHandler(parent, identifier, done) {
+    parent.forEachChild(function (node) {
+        var found = matches(node, identifier);
+        found ? done(found) : findExportHandler(node, identifier, done);
+    });
 }
 /**
  * Prints out particular nodes from a source file
@@ -28,34 +52,19 @@ function extract(file, identifier) {
     var foundNodes = [];
     // Loop through the root AST nodes of the file
     ts.forEachChild(sourceFile, function (node) {
-        if (ts.isVariableStatement(node) && isNodeExported(node)) {
-            var nodeDeclarations = node.declarationList.declarations[0];
-            if (nodeDeclarations.name.getText(node.getSourceFile()) !== "handler") {
-                return;
-            }
-            var children = node.getChildren(sourceFile);
-            var declaration = children.find(function (x) { return ts.isVariableDeclarationList(x); });
-            if (!declaration) {
-                return;
-            }
-            var syntaxList = declaration.getChildren().find(function (x) { return x.kind === ts.SyntaxKind.SyntaxList; });
-            var variableDeclaration = syntaxList._children.find(function (x) { return ts.isVariableDeclaration(x); });
-            if (!variableDeclaration) {
-                return;
-            }
-            var arrowFunction = variableDeclaration.getChildren().find(function (x) { return ts.isArrowFunction(x); });
-            if (!arrowFunction) {
-                return;
-            }
-            foundNodes.push(processNode(typeChecker, file, arrowFunction));
+        var found = matches(node, identifier);
+        if (found) {
+            foundNodes.push(processNode(typeChecker, file, found));
         }
         else {
-            unresolvedNodes.push(node);
+            findExportHandler(node, identifier, function (exportHandler) {
+                foundNodes.push(processNode(typeChecker, file, exportHandler));
+            });
         }
     });
     // Either print the found nodes, or offer a list of what identifiers were found
     if (!foundNodes.length) {
-        console.log("Could not find '" + identifier + "' in " + file + ", found: " + unresolvedNodes.filter(function (f) { return f[0]; }).map(function (f) { return f[0]; }).join(", ") + ".");
+        console.log("Could not find '" + identifier + "' in " + file + ", found: " + unresolvedNodes.filter(function (f) { return f[0]; }).map(function (f) { return f[0]; }).join(", ") + ". (Have your exported a '" + identifier + "' function?)");
         process.exitCode = 1;
     }
     else {
@@ -83,44 +92,45 @@ function processNode(typeChecker, file, node) {
         returns: serialiseType(typeChecker, node.type)
     };
 }
-var _parsedAliases = new Set();
-var typeParams = new Map();
+var heritageTypeParams = new Map();
 function serialiseType(typeChecker, type) {
     var typeNodeSchema = {};
     if (ts.isTypeReferenceNode(type)) {
         var typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        const symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol
+        var symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol;
         if (symbol) {
             if (type.typeArguments) {
-                typeParams.set(symbol, type.typeArguments)
+                heritageTypeParams.set(symbol, type.typeArguments);
             }
-
-            var declarations_2 = symbol.getDeclarations();
-            for (var i_1 = 0; i_1 < declarations_2.length; i_1++) {
-                var declaration_1 = declarations_2[i_1];
-                if (declaration_1.typeParameters) {
-                    for(const typeParam of declaration_1.typeParameters) {
-                        typeParams.set(typeParam.symbol, type.typeArguments)
+            var declarations = symbol.getDeclarations();
+            for (var i = 0; i < declarations.length; i++) {
+                var declaration = declarations[i];
+                if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
+                    if (type.typeArguments) {
+                        for (var _i = 0, _a = declaration.typeParameters; _i < _a.length; _i++) {
+                            var typeParam = _a[_i];
+                            heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments);
+                        }
                     }
                 }
-                extend(typeNodeSchema, serialiseType(typeChecker, declaration_1));
+                extend(typeNodeSchema, serialiseType(typeChecker, declaration));
             }
         }
     }
     else if (ts.isExpressionWithTypeArguments(type)) {
         if (type.typeArguments) {
-            for (var _i = 0, _a = type.typeArguments; _i < _a.length; _i++) {
-                var typeNode = _a[_i];
+            for (var _b = 0, _c = type.typeArguments; _b < _c.length; _b++) {
+                var typeNode = _c[_b];
                 extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
             }
         }
     }
     else if (ts.isIdentifier(type)) {
         var typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        var declarations_3 = typeReferenceShape.symbol.getDeclarations();
-        for (var _b = 0, declarations_1 = declarations_3; _b < declarations_1.length; _b++) {
-            var declaration_2 = declarations_1[_b];
-            extend(typeNodeSchema, serialiseType(typeChecker, declaration_2));
+        var declarations = typeReferenceShape.symbol.getDeclarations();
+        for (var _d = 0, declarations_1 = declarations; _d < declarations_1.length; _d++) {
+            var declaration = declarations_1[_d];
+            extend(typeNodeSchema, serialiseType(typeChecker, declaration));
         }
     }
     else if (ts.isTypeAliasDeclaration(type)) {
@@ -130,23 +140,23 @@ function serialiseType(typeChecker, type) {
         typeNodeSchema[type.name.getText()] = serialiseType(typeChecker, type.type);
     }
     else if (ts.isTypeLiteralNode(type)) {
-        for (var _c = 0, _d = type.members; _c < _d.length; _c++) {
-            var member = _d[_c];
+        for (var _e = 0, _f = type.members; _e < _f.length; _e++) {
+            var member = _f[_e];
             extend(typeNodeSchema, serialiseType(typeChecker, member));
         }
     }
     else if (ts.isInterfaceDeclaration(type)) {
         if (type.heritageClauses) {
-            for (var _e = 0, _f = type.heritageClauses; _e < _f.length; _e++) {
-                var heritage = _f[_e];
-                for (var _g = 0, _h = heritage.types; _g < _h.length; _g++) {
-                    var typeNode = _h[_g];
+            for (var _g = 0, _h = type.heritageClauses; _g < _h.length; _g++) {
+                var heritage = _h[_g];
+                for (var _j = 0, _k = heritage.types; _j < _k.length; _j++) {
+                    var typeNode = _k[_j];
                     extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
                 }
             }
         }
-        for (var _j = 0, _k = type.members; _j < _k.length; _j++) {
-            var member = _k[_j];
+        for (var _l = 0, _m = type.members; _l < _m.length; _l++) {
+            var member = _m[_l];
             extend(typeNodeSchema, serialiseType(typeChecker, member));
         }
     }
@@ -154,30 +164,28 @@ function serialiseType(typeChecker, type) {
         return serialiseType(typeChecker, type.objectType);
     }
     else if (ts.isIntersectionTypeNode(type)) {
-        for (var _l = 0, _m = type.types; _l < _m.length; _l++) {
-            var typeNode = _m[_l];
+        for (var _o = 0, _p = type.types; _o < _p.length; _o++) {
+            var typeNode = _p[_o];
             extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
         }
     }
     else if (ts.isTypeParameterDeclaration(type)) {
-        // const constraint = typeChecker.getTypeAtLocation(type.parent).getConstraint()
-        // Try closest
-        const order = [
+        // Run up the chain until we find the heritage parameter
+        var order = [
             type,
             type.parent.type
-        ]
-        for(const path of order) {
-            const exists = typeParams.get(typeChecker.getTypeAtLocation(path).symbol)
+        ];
+        for (var _q = 0, order_1 = order; _q < order_1.length; _q++) {
+            var path_1 = order_1[_q];
+            var exists = heritageTypeParams.get(typeChecker.getTypeAtLocation(path_1).symbol);
             if (exists) {
                 return serialiseType(typeChecker, exists[0]);
             }
         }
-        
     }
     else {
         return typeName(typeChecker, type);
     }
-    // console.log(typeNodeSchema);
     if (Object.keys(typeNodeSchema).length) {
         return typeNodeSchema;
     }
@@ -219,14 +227,13 @@ function typeName(typeChecker, node) {
             return { type: "number" };
         case ts.SyntaxKind.AnyKeyword:
             return { type: "any" };
-        case ts.SyntaxKind.VoidKeyword:
-            return { type: "void" };
         case ts.SyntaxKind.NullKeyword:
             return { type: "null" };
+        case ts.SyntaxKind.VoidKeyword:
         case ts.SyntaxKind.UndefinedKeyword:
-            return { type: "undefined" };
         case ts.SyntaxKind.NeverKeyword:
-            return { type: "never" };
+            // Omit the key
+            return undefined;
     }
     console.error("Type not handled:", node.kind, ts.SyntaxKind[node.kind], node.getText());
     return "";
@@ -234,3 +241,5 @@ function typeName(typeChecker, node) {
 // Run the extract function with the script's arguments
 extract("./handlers/handler.inline.ts", "handler");
 //extract("./handlers/handler.typeRef.ts", "handler");
+extract("./handlers/handler.separate.export.ts", "handler");
+//extract("./handlers/handler.function.ts", "handler");

@@ -2,12 +2,38 @@ import * as ts from "typescript";
 import * as path from "path";
 import * as extend from "deep-extend";
 
-/** True if this is visible outside this file, false otherwise */
+/** This doesn't work when something is exported separate to it's declaration */
 function isNodeExported(node: ts.Node): boolean {
     return (
         (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0 ||
         (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile)
     );
+}
+
+function matches(node: ts.Node, identifier: string): ts.ArrowFunction | ts.FunctionDeclaration | undefined {
+    if (!isNodeExported(node)) {
+        return undefined;
+    }
+
+    if (ts.isFunctionDeclaration(node)
+        && node.name.text.trim() === identifier) {
+        return node;
+    } else if (
+        ts.isVariableDeclaration(node) &&
+        node.name.getFullText().trim() === identifier) {
+            const found = node.getChildren().find(x => ts.isArrowFunction(x)) as ts.ArrowFunction;
+            if (found) {
+                return found
+            }
+            return undefined
+    }
+}
+
+function findExportHandler(parent: ts.Node, identifier: string, done) {
+    parent.forEachChild((node: any) => {
+        const found = matches(node, identifier);
+        found ? done(found) : findExportHandler(node, identifier, done)
+    })
 }
 
 /**
@@ -33,40 +59,24 @@ function extract(file: string, identifier: string): void {
 
     // Loop through the root AST nodes of the file
     ts.forEachChild(sourceFile, node => {
-        if (ts.isVariableStatement(node) && isNodeExported(node)) {
-            const nodeDeclarations = node.declarationList.declarations[0];
-            if (nodeDeclarations.name.getText(node.getSourceFile()) !== "handler") {
-                return;
-            }
-
-            const children = node.getChildren(sourceFile);
-            const declaration = children.find(x => ts.isVariableDeclarationList(x)) as ts.VariableDeclarationList;
-            if (!declaration) {
-                return;
-            }
-            const syntaxList = declaration.getChildren().find(x => x.kind === ts.SyntaxKind.SyntaxList) as ts.SyntaxList
-
-            const variableDeclaration = syntaxList._children.find(x => ts.isVariableDeclaration(x)) as ts.VariableDeclaration;
-            if (!variableDeclaration) {
-                return;
-            }
-
-            const arrowFunction = variableDeclaration.getChildren().find(x => ts.isArrowFunction(x)) as ts.ArrowFunction;
-            if (!arrowFunction) {
-                return;
-            }
-
+        const found = matches(node, identifier)
+        if (found) {
             foundNodes.push(
-                processNode(typeChecker, file, arrowFunction)
+                processNode(typeChecker, file, found)
             )
         } else {
-            unresolvedNodes.push(node)
+            findExportHandler(node, identifier, exportHandler => {
+                foundNodes.push(
+                    processNode(typeChecker, file, exportHandler)
+                )
+            })
         }
+        
     });
 
     // Either print the found nodes, or offer a list of what identifiers were found
     if (!foundNodes.length) {
-        console.log(`Could not find '${identifier}' in ${file}, found: ${unresolvedNodes.filter(f => f[0]).map(f => f[0]).join(", ")}.`);
+        console.log(`Could not find '${identifier}' in ${file}, found: ${unresolvedNodes.filter(f => f[0]).map(f => f[0]).join(", ")}. (Have your exported a '${identifier}' function?)`);
         process.exitCode = 1;
     } else {
         foundNodes.map(f => {
@@ -75,7 +85,7 @@ function extract(file: string, identifier: string): void {
     }
 }
 
-function getFunctionComments(node: ts.MethodDeclaration | ts.ArrowFunction): string {
+function getFunctionComments(node: ts.SignatureDeclaration): string {
     // const [commentRange] = ts.getLeadingCommentRanges(node.getSourceFile().getFullText(), node.getFullStart())
     // const comment = node.getSourceFile().getFullText().slice(commentRange.pos, commentRange.end)
     // console.log(comment)
@@ -86,7 +96,7 @@ function getFunctionComments(node: ts.MethodDeclaration | ts.ArrowFunction): str
     // console.log((jsDocTags[0].parent as any).comment);
 }
 
-function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.ArrowFunction) {
+function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.SignatureDeclaration) {
     const [summary, description] = getFunctionComments(node).split("\n");
 
     return {
@@ -98,9 +108,7 @@ function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.ArrowFu
     }
 }
 
-const _parsedAliases = new Set();
-const typeParams = new Map<ts.Symbol, ts.NodeArray<ts.TypeNode>>();
-
+const heritageTypeParams = new Map<ts.Symbol, ts.NodeArray<ts.TypeNode>>();
 function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
     const typeNodeSchema = {};
     if (ts.isTypeReferenceNode(type)) {
@@ -108,7 +116,7 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
         const symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol
         if (symbol) {
             if (type.typeArguments) {
-                typeParams.set(symbol, type.typeArguments)
+                heritageTypeParams.set(symbol, type.typeArguments)
             }
             const declarations = symbol.getDeclarations();
             for (let i = 0; i < declarations.length; i++) {
@@ -116,7 +124,7 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
                 if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
                     if (type.typeArguments) {
                         for (const typeParam of declaration.typeParameters) {
-                            typeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments)
+                            heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments)
                         }
                     }
                 }
@@ -163,13 +171,13 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
             extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
         }
     } else if (ts.isTypeParameterDeclaration(type)) {
-        // Try closest
+        // Run up the chain until we find the heritage parameter
         const order = [
             type,
             (type.parent as any).type
         ]
         for(const path of order) {
-            const exists = typeParams.get(typeChecker.getTypeAtLocation(path).symbol)
+            const exists = heritageTypeParams.get(typeChecker.getTypeAtLocation(path).symbol)
             if (exists) {
                 return serialiseType(typeChecker, exists[0]);
             }
@@ -179,7 +187,6 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
         return typeName(typeChecker, type);
     }
 
-    // console.log(typeNodeSchema);
     if (Object.keys(typeNodeSchema).length) {
         return typeNodeSchema;
     }
@@ -219,13 +226,6 @@ function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
         }
     }
 
-
-    // if (ts.isExpressionWithTypeArguments(node)) {
-    //   return node.getText()
-    // }
-    // if (ts.isTypeOperatorNode(node)) {
-    //   return node.getText()
-    // }
     switch (node.kind) {
         case ts.SyntaxKind.StringKeyword:
             return { type: "string" }
@@ -235,14 +235,13 @@ function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
             return { type: "number" }
         case ts.SyntaxKind.AnyKeyword:
             return { type: "any" }
-        case ts.SyntaxKind.VoidKeyword:
-            return { type: "void" }
         case ts.SyntaxKind.NullKeyword:
-            return { type: "null" }
+                return { type: "null" }
+        case ts.SyntaxKind.VoidKeyword:
         case ts.SyntaxKind.UndefinedKeyword:
-            return { type: "undefined" }
         case ts.SyntaxKind.NeverKeyword:
-            return { type: "never" }
+            // Omit the key
+            return undefined
     }
 
     console.error("Type not handled:", node.kind, ts.SyntaxKind[node.kind], node.getText())
@@ -250,5 +249,7 @@ function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
 }
 
 // Run the extract function with the script's arguments
-//extract("./handlers/handler.inline.ts", "handler");
-extract("./handlers/handler.typeRef.ts", "handler");
+extract("./handlers/handler.inline.ts", "handler");
+//extract("./handlers/handler.typeRef.ts", "handler");
+extract("./handlers/handler.separate.export.ts", "handler");
+//extract("./handlers/handler.function.ts", "handler");

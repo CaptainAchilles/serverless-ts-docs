@@ -22,11 +22,11 @@ interface HTTPEvent<T extends LambdaHTTPEvent> {
 
 type AuthHeaders = {
     headers: {
-        "Authorization": string;
+        Authorization: string;
         "x-rita-userid": string;
     }
 }
-interface AuthorisedHTTPEvent<T> extends HTTPEvent<AuthHeaders & T> {}
+interface AuthorisedHTTPEvent<T> extends HTTPEvent<AuthHeaders & T> { }
 
 type APIResponseBody<T> = {
     message?: string,
@@ -38,9 +38,10 @@ type APIResponse<T> = {
     body: APIResponseBody<T>
 } | APIResponseBody<T>
 
-type HandlerEvent = AuthorisedHTTPEvent<{
+type HandlerEvent = {
     headers: {
         rando: string
+        Authorization: undefined
     },
     queryStringParameters: {
         doTHeGuy: string
@@ -48,29 +49,36 @@ type HandlerEvent = AuthorisedHTTPEvent<{
     pathParameters: {
         push: true | false
     }
-}>;
+};
 
-type HandlerResponse = APIResponse<{ ss: number}>;
+type HandlerResponse = { ss: number };
 
 /**
  * Account Users
  * Gets of all the users in the account
  * @param {number} a
  */
-export const handler = (event: HandlerEvent): HandlerResponse => {
+export const handler = (event: AuthorisedHTTPEvent<HandlerEvent>): APIResponse<HandlerResponse> => {
     const a = event.headers["x-rita-userid"];
 
     event.pathParameters.push;
-    // event.pathParameters.b;
-    
+
     const header = event.headers["authorization"];
-    return {
-        statusCode: 200,
-        body: {
-            message: "All done",
-            data: {
-                ss: 900
+    if (header > 200) {
+        return {
+            statusCode: 200,
+            body: {
+                message: "All done",
+                data: {
+                    ss: 900
+                }
             }
+        }
+    }
+    return {
+        message: "All done",
+        data: {
+            ss: 900
         }
     }
 }
