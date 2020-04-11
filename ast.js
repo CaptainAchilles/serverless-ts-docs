@@ -3,6 +3,11 @@ exports.__esModule = true;
 var ts = require("typescript");
 var path = require("path");
 var extend = require("deep-extend");
+/** True if this is visible outside this file, false otherwise */
+function isNodeExported(node) {
+    return ((ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0 ||
+        (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile));
+}
 /**
  * Prints out particular nodes from a source file
  *
@@ -59,10 +64,14 @@ function extract(file, identifier) {
         });
     }
 }
-/** True if this is visible outside this file, false otherwise */
-function isNodeExported(node) {
-    return ((ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0 ||
-        (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile));
+function getFunctionComments(node) {
+    // const [commentRange] = ts.getLeadingCommentRanges(node.getSourceFile().getFullText(), node.getFullStart())
+    // const comment = node.getSourceFile().getFullText().slice(commentRange.pos, commentRange.end)
+    // console.log(comment)
+    //console.log((node as any).jsDoc[0].comment)
+    var jsDocTags = ts.getJSDocTags(node);
+    return jsDocTags[0].parent.comment;
+    // console.log((jsDocTags[0].parent as any).comment);
 }
 function processNode(typeChecker, file, node) {
     var _a = getFunctionComments(node).split("\n"), summary = _a[0], description = _a[1];
@@ -80,57 +89,38 @@ function serialiseType(typeChecker, type) {
     var typeNodeSchema = {};
     if (ts.isTypeReferenceNode(type)) {
         var typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        if (typeReferenceShape.symbol) {
+        const symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol
+        if (symbol) {
             if (type.typeArguments) {
-                for (var _i = 0, _a = type.typeArguments; _i < _a.length; _i++) {
-                    var typeNode = _a[_i];
-                    extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
-                }
+                typeParams.set(symbol, type.typeArguments)
             }
-            var declarations = typeReferenceShape.symbol.getDeclarations();
-            for (var _b = 0, declarations_1 = declarations; _b < declarations_1.length; _b++) {
-                var declaration = declarations_1[_b];
-                extend(typeNodeSchema, serialiseType(typeChecker, declaration));
-            }
-        }
-        else if (typeReferenceShape.aliasSymbol) {
-            for (var i = 0; i < typeReferenceShape.aliasSymbol.declarations.length; i++) {
-                var declaration = typeReferenceShape.aliasSymbol.declarations[i];
-                if (!_parsedAliases.has(declaration)) {
-                    _parsedAliases.add(declaration);
-                    if (type.typeArguments) {
-                        if (ts.isTypeAliasDeclaration(declaration)) {
-                            typeParams.set(typeChecker.getTypeAtLocation(declaration.typeParameters[i]).symbol, serialiseType(typeChecker, type.typeArguments[i]));
-                        }
+
+            var declarations_2 = symbol.getDeclarations();
+            for (var i_1 = 0; i_1 < declarations_2.length; i_1++) {
+                var declaration_1 = declarations_2[i_1];
+                if (declaration_1.typeParameters) {
+                    for(const typeParam of declaration_1.typeParameters) {
+                        typeParams.set(typeParam.symbol, type.typeArguments)
                     }
-                    extend(typeNodeSchema, serialiseType(typeChecker, declaration));
                 }
-            }
-        }
-        else if (typeReferenceShape.aliasTypeArguments) {
-            for (var _c = 0, _d = typeReferenceShape.aliasTypeArguments; _c < _d.length; _c++) {
-                var aliasTypeArgument = _d[_c];
-                for (var _e = 0, _f = aliasTypeArgument.symbol.declarations; _e < _f.length; _e++) {
-                    var declaration = _f[_e];
-                    extend(typeNodeSchema, serialiseType(typeChecker, declaration));
-                }
+                extend(typeNodeSchema, serialiseType(typeChecker, declaration_1));
             }
         }
     }
     else if (ts.isExpressionWithTypeArguments(type)) {
         if (type.typeArguments) {
-            for (var _g = 0, _h = type.typeArguments; _g < _h.length; _g++) {
-                var typeNode = _h[_g];
+            for (var _i = 0, _a = type.typeArguments; _i < _a.length; _i++) {
+                var typeNode = _a[_i];
                 extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
             }
         }
     }
     else if (ts.isIdentifier(type)) {
         var typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        var declarations = typeReferenceShape.symbol.getDeclarations();
-        for (var _j = 0, declarations_2 = declarations; _j < declarations_2.length; _j++) {
-            var declaration = declarations_2[_j];
-            extend(typeNodeSchema, serialiseType(typeChecker, declaration));
+        var declarations_3 = typeReferenceShape.symbol.getDeclarations();
+        for (var _b = 0, declarations_1 = declarations_3; _b < declarations_1.length; _b++) {
+            var declaration_2 = declarations_1[_b];
+            extend(typeNodeSchema, serialiseType(typeChecker, declaration_2));
         }
     }
     else if (ts.isTypeAliasDeclaration(type)) {
@@ -140,23 +130,23 @@ function serialiseType(typeChecker, type) {
         typeNodeSchema[type.name.getText()] = serialiseType(typeChecker, type.type);
     }
     else if (ts.isTypeLiteralNode(type)) {
-        for (var _k = 0, _l = type.members; _k < _l.length; _k++) {
-            var member = _l[_k];
+        for (var _c = 0, _d = type.members; _c < _d.length; _c++) {
+            var member = _d[_c];
             extend(typeNodeSchema, serialiseType(typeChecker, member));
         }
     }
     else if (ts.isInterfaceDeclaration(type)) {
         if (type.heritageClauses) {
-            for (var _m = 0, _o = type.heritageClauses; _m < _o.length; _m++) {
-                var heritage = _o[_m];
-                for (var _p = 0, _q = heritage.types; _p < _q.length; _p++) {
-                    var typeNode = _q[_p];
+            for (var _e = 0, _f = type.heritageClauses; _e < _f.length; _e++) {
+                var heritage = _f[_e];
+                for (var _g = 0, _h = heritage.types; _g < _h.length; _g++) {
+                    var typeNode = _h[_g];
                     extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
                 }
             }
         }
-        for (var _r = 0, _s = type.members; _r < _s.length; _r++) {
-            var member = _s[_r];
+        for (var _j = 0, _k = type.members; _j < _k.length; _j++) {
+            var member = _k[_j];
             extend(typeNodeSchema, serialiseType(typeChecker, member));
         }
     }
@@ -164,14 +154,25 @@ function serialiseType(typeChecker, type) {
         return serialiseType(typeChecker, type.objectType);
     }
     else if (ts.isIntersectionTypeNode(type)) {
-        for (var _t = 0, _u = type.types; _t < _u.length; _t++) {
-            var typeNode = _u[_t];
+        for (var _l = 0, _m = type.types; _l < _m.length; _l++) {
+            var typeNode = _m[_l];
             extend(typeNodeSchema, serialiseType(typeChecker, typeNode));
         }
     }
     else if (ts.isTypeParameterDeclaration(type)) {
-        // pass
-        return typeParams.get(typeChecker.getTypeAtLocation(type).symbol);
+        // const constraint = typeChecker.getTypeAtLocation(type.parent).getConstraint()
+        // Try closest
+        const order = [
+            type,
+            type.parent.type
+        ]
+        for(const path of order) {
+            const exists = typeParams.get(typeChecker.getTypeAtLocation(path).symbol)
+            if (exists) {
+                return serialiseType(typeChecker, exists[0]);
+            }
+        }
+        
     }
     else {
         return typeName(typeChecker, type);
@@ -181,15 +182,6 @@ function serialiseType(typeChecker, type) {
         return typeNodeSchema;
     }
     return undefined;
-}
-function getFunctionComments(node) {
-    // const [commentRange] = ts.getLeadingCommentRanges(node.getSourceFile().getFullText(), node.getFullStart())
-    // const comment = node.getSourceFile().getFullText().slice(commentRange.pos, commentRange.end)
-    // console.log(comment)
-    //console.log((node as any).jsDoc[0].comment)
-    var jsDocTags = ts.getJSDocTags(node);
-    return jsDocTags[0].parent.comment;
-    // console.log((jsDocTags[0].parent as any).comment);
 }
 function typeName(typeChecker, node) {
     if (ts.isTypeReferenceNode(node) || ts.isTypeLiteralNode(node)) {
@@ -218,12 +210,6 @@ function typeName(typeChecker, node) {
             "enum": [isBoolean ? (node.getText() === "false" ? false : true) : node.getText()]
         };
     }
-    // if (ts.isExpressionWithTypeArguments(node)) {
-    //   return node.getText()
-    // }
-    // if (ts.isTypeOperatorNode(node)) {
-    //   return node.getText()
-    // }
     switch (node.kind) {
         case ts.SyntaxKind.StringKeyword:
             return { type: "string" };
