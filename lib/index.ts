@@ -42,7 +42,7 @@ function findExportHandler(parent: ts.Node, identifier: string, done: (node: ts.
  * @param file a path to a file
  * @param identifier top level identifiers available
  */
-function extract(file: string, identifier: string): void {
+export function extract(file: string, identifier: string): void {
     // Create a Program to represent the project, then pull out the
     // source file to parse its AST.
     let program = ts.createProgram([file], {
