@@ -86,8 +86,9 @@ export function extract(file: string, identifier: string): void {
 }
 
 if (require.main === module) {
-    if (process.argv.length != 3) {
+    if (process.argv.length < 3 || process.argv.length > 4) {
         console.log(`Usage: ${process.argv[0]} fileName exportFunction`)
     }
-    extract(process.argv[1], process.argv[2])
+    const lastTwoArgs = process.argv.slice(process.argv.length - 2)
+    extract(lastTwoArgs[0], lastTwoArgs[1])
 }

@@ -80,12 +80,11 @@ function extract(file, identifier) {
         });
     }
 }
+exports.extract = extract;
 if (require.main === module) {
     if (process.argv.length < 3 || process.argv.length > 4) {
         console.log("Usage: " + process.argv[0] + " fileName exportFunction");
-        process.exit(1);
     }
-
-    const lastTwoArgs = process.argv.slice(process.argv.length - 2)
+    var lastTwoArgs = process.argv.slice(process.argv.length - 2);
     extract(lastTwoArgs[0], lastTwoArgs[1]);
 }
