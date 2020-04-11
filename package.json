@@ -15,6 +15,7 @@
     "typescript": "^3.8.3"
   },
   "dependencies": {
+    "deep-extend": "^0.6.0",
     "ts-dox": "0.0.7",
     "ts-json-schema-generator": "^0.65.0",
     "ts-morph": "^7.0.2",

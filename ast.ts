@@ -1,6 +1,6 @@
 import * as ts from "typescript";
 import * as path from "path";
-import { types } from "util";
+import * as extend from "deep-extend";
 
 /**
  * Prints out particular nodes from a source file
@@ -120,39 +120,70 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
     const typeNodeSchema = {};
 
     
-    if (ts.isTypeReferenceNode(type)) {
-        for (const typeNode of type.typeArguments) {
-            const typeReferenceShape = typeChecker.getTypeAtLocation(type);
-            const declarations = typeReferenceShape.symbol.getDeclarations();
-            for(const declaration of declarations) {
-                Object.assign(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
+    if (ts.isTypeReferenceNode(type) || ts.isExpressionWithTypeArguments(type)) {
+        const typeReferenceShape = typeChecker.getTypeAtLocation(type);
+        const declarations = typeReferenceShape.symbol.getDeclarations();
+        for(const declaration of declarations) {
+            extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
+        }
+        if (type.typeArguments) {
+            for (const typeNode of type.typeArguments) {                
+                extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
             }
-            Object.assign(typeNodeSchema, serialiseType(typeChecker, typeNode))
+        }
+        if (ts.isTypeReferenceNode(type) && (type as any).members) {
+            for (const typeNode of (type as any).members) {
+                extend(typeNodeSchema, serialiseType(typeChecker, typeNode as unknown as ts.TypeNode))
+            }
+        }
+
+    } else if (ts.isIdentifier(type)) {
+        const typeReferenceShape = typeChecker.getTypeAtLocation(type);
+        const declarations = typeReferenceShape.symbol.getDeclarations();
+        for(const declaration of declarations) {
+            extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
         }
     } else if (ts.isPropertySignature(type)) {
         typeNodeSchema[type.name.getText()] = serialiseType(typeChecker, type.type as ts.TypeNode)
     }
     else if (ts.isTypeLiteralNode(type)) {
         for (const member of type.members) {
-            Object.assign(typeNodeSchema, serialiseType(typeChecker, member as unknown as ts.TypeNode))
+            extend(typeNodeSchema, serialiseType(typeChecker, member as unknown as ts.TypeNode))
         }
     } else if (ts.isInterfaceDeclaration(type)) {
-        for(const heritage of type.heritageClauses) {
-            for(const typeNode of heritage.types) {
-                Object.assign(typeNodeSchema, serialiseType(typeChecker, typeNode as ts.TypeNode))
+        if (type.heritageClauses) {
+            for(const heritage of type.heritageClauses) {
+                for(const typeNode of heritage.types) {
+                    extend(typeNodeSchema, serialiseType(typeChecker, typeNode as ts.TypeNode))
+                }
             }
         }
         for(const member of type.members) {
-            Object.assign(typeNodeSchema, serialiseType(typeChecker, member as any))
+            extend(typeNodeSchema, serialiseType(typeChecker, member as any))
         }
+    } else if (ts.isIndexedAccessTypeNode(type)) {
+        return serialiseType(typeChecker, type.objectType)
+        // const typeReferenceShape = typeChecker.getTypeAtLocation(type);
+        // const declarations = typeReferenceShape.symbol.getDeclarations();
+        // for(const declaration of declarations) {
+        //     extend(typeNodeSchema[type.indexType.getFullText()], serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
+        // }
 
-    } else if (ts.isExpressionWithTypeArguments(type)) {
-        console.log(type);
+        //return serialiseType(typeChecker, type.objectType)
+    } else if(ts.isIntersectionTypeNode(type)) {
+        for(const typeNode of type.types) {
+            extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
+        }
+    } else if (ts.isTypeParameterDeclaration(type)) {
+        // console.log(type);
     } else {
         return typeName(type);
     }
 
-    return typeNodeSchema;
+    if (Object.keys(typeNodeSchema).length) {
+        return typeNodeSchema;
+    }
+    return undefined
 }
 
 function getFunctionComments(node: ts.MethodDeclaration): string {

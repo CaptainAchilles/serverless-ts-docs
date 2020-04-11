@@ -44,8 +44,13 @@ type APIResponse<T> = {
  * @param {number} a
  */
 export const handler = (event: AuthorisedHTTPEvent<{
+    headers: {
+        rando: string
+    },
+    queryStringParameters: {
+        doTHeGuy: string
+    },
     pathParameters: {
-        a: string,
         push: true | false
     }
 }>): APIResponse<{ status: number }> => {
