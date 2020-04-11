@@ -2,6 +2,14 @@ import * as ts from "typescript";
 import * as path from "path";
 import * as extend from "deep-extend";
 
+/** True if this is visible outside this file, false otherwise */
+function isNodeExported(node: ts.Node): boolean {
+    return (
+        (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0 ||
+        (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile)
+    );
+}
+
 /**
  * Prints out particular nodes from a source file
  * 
@@ -66,14 +74,17 @@ function extract(file: string, identifier: string): void {
         });
     }
 }
-/** True if this is visible outside this file, false otherwise */
-function isNodeExported(node: ts.Node): boolean {
-    return (
-        (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0 ||
-        (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile)
-    );
-}
 
+function getFunctionComments(node: ts.MethodDeclaration | ts.ArrowFunction): string {
+    // const [commentRange] = ts.getLeadingCommentRanges(node.getSourceFile().getFullText(), node.getFullStart())
+    // const comment = node.getSourceFile().getFullText().slice(commentRange.pos, commentRange.end)
+    // console.log(comment)
+
+    //console.log((node as any).jsDoc[0].comment)
+    const jsDocTags = ts.getJSDocTags(node);
+    return (jsDocTags[0].parent as any).comment
+    // console.log((jsDocTags[0].parent as any).comment);
+}
 
 function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.ArrowFunction) {
     const [summary, description] = getFunctionComments(node).split("\n");
@@ -88,42 +99,28 @@ function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.ArrowFu
 }
 
 const _parsedAliases = new Set();
-const typeParams = new Map<ts.Symbol, ts.TypeNode>();
+const typeParams = new Map<ts.Symbol, ts.NodeArray<ts.TypeNode>>();
 
 function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
     const typeNodeSchema = {};
     if (ts.isTypeReferenceNode(type)) {
         const typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        if (typeReferenceShape.symbol) {
+        const symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol
+        if (symbol) {
             if (type.typeArguments) {
-                for (const typeNode of type.typeArguments) {
-                    extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
-                }
+                typeParams.set(symbol, type.typeArguments)
             }
-
-            const declarations = typeReferenceShape.symbol.getDeclarations();
-            for (const declaration of declarations) {
-                extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
-            }
-        } 
-        else if (typeReferenceShape.aliasSymbol) {
-            for (let i = 0; i < typeReferenceShape.aliasSymbol.declarations.length; i++) {
-                const declaration = typeReferenceShape.aliasSymbol.declarations[i];
-                if (!_parsedAliases.has(declaration)) {
-                    _parsedAliases.add(declaration)
+            const declarations = symbol.getDeclarations();
+            for (let i = 0; i < declarations.length; i++) {
+                const declaration = declarations[i];
+                if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
                     if (type.typeArguments) {
-                        if (ts.isTypeAliasDeclaration(declaration)) {
-                            typeParams.set(typeChecker.getTypeAtLocation(declaration.typeParameters[i]).symbol, serialiseType(typeChecker, type.typeArguments[i]));
+                        for (const typeParam of declaration.typeParameters) {
+                            typeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments)
                         }
                     }
-                    extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
                 }
-            }
-        } else if (typeReferenceShape.aliasTypeArguments) {
-            for (const aliasTypeArgument of typeReferenceShape.aliasTypeArguments) {
-                for (const declaration of aliasTypeArgument.symbol.declarations) {
-                    extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
-                }
+                extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
             }
         }
     } else if (ts.isExpressionWithTypeArguments(type)) {
@@ -166,8 +163,18 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
             extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
         }
     } else if (ts.isTypeParameterDeclaration(type)) {
-        // pass
-        return typeParams.get(typeChecker.getTypeAtLocation(type).symbol)
+        // Try closest
+        const order = [
+            type,
+            (type.parent as any).type
+        ]
+        for(const path of order) {
+            const exists = typeParams.get(typeChecker.getTypeAtLocation(path).symbol)
+            if (exists) {
+                return serialiseType(typeChecker, exists[0]);
+            }
+        }
+        
     } else {
         return typeName(typeChecker, type);
     }
@@ -179,16 +186,7 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
     return undefined
 }
 
-function getFunctionComments(node: ts.MethodDeclaration | ts.ArrowFunction): string {
-    // const [commentRange] = ts.getLeadingCommentRanges(node.getSourceFile().getFullText(), node.getFullStart())
-    // const comment = node.getSourceFile().getFullText().slice(commentRange.pos, commentRange.end)
-    // console.log(comment)
 
-    //console.log((node as any).jsDoc[0].comment)
-    const jsDocTags = ts.getJSDocTags(node);
-    return (jsDocTags[0].parent as any).comment
-    // console.log((jsDocTags[0].parent as any).comment);
-}
 
 function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
     if (ts.isTypeReferenceNode(node) || ts.isTypeLiteralNode(node)) {
@@ -252,5 +250,5 @@ function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
 }
 
 // Run the extract function with the script's arguments
-extract("./handlers/handler.inline.ts", "handler");
-//extract("./handlers/handler.typeRef.ts", "handler");
+//extract("./handlers/handler.inline.ts", "handler");
+extract("./handlers/handler.typeRef.ts", "handler");
