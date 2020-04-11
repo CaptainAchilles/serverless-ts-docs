@@ -53,10 +53,10 @@ export const handler = (event: AuthorisedHTTPEvent<{
     pathParameters: {
         push: true | false
     }
-}>): APIResponse<{ status: number }> => {
+}>): APIResponse<{ ss: number }> => {
     const a = event.headers["x-rita-userid"];
 
-    event.pathParameters.a;
+    event.pathParameters.push;
     // event.pathParameters.b;
     
     const header = event.headers["authorization"];
@@ -65,7 +65,7 @@ export const handler = (event: AuthorisedHTTPEvent<{
         body: {
             message: "All done",
             data: {
-                status: 900
+                ss: 900
             }
         }
     }

@@ -38,20 +38,29 @@ type APIResponse<T> = {
     body: APIResponseBody<T>
 } | APIResponseBody<T>
 
-export type Handler = (event: AuthorisedHTTPEvent<{
+type HandlerEvent = AuthorisedHTTPEvent<{
+    headers: {
+        rando: string
+    },
+    queryStringParameters: {
+        doTHeGuy: string
+    },
     pathParameters: {
-        a: string
+        push: true | false
     }
-}>) => APIResponse<{ status: number }>;
+}>;
+
+type HandlerResponse = APIResponse<{ ss: number}>;
 
 /**
  * Account Users
  * Gets of all the users in the account
+ * @param {number} a
  */
-export const handler: Handler = event => {
+export const handler = (event: HandlerEvent): HandlerResponse => {
     const a = event.headers["x-rita-userid"];
 
-    event.pathParameters.a;
+    event.pathParameters.push;
     // event.pathParameters.b;
     
     const header = event.headers["authorization"];
@@ -60,7 +69,7 @@ export const handler: Handler = event => {
         body: {
             message: "All done",
             data: {
-                status: 900
+                ss: 900
             }
         }
     }

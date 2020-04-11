@@ -25,8 +25,6 @@ function extract(file: string, identifier: string): void {
 
     // Loop through the root AST nodes of the file
     ts.forEachChild(sourceFile, node => {
-        let name = "";
-
         if (ts.isVariableStatement(node) && isNodeExported(node)) {
             const nodeDeclarations = node.declarationList.declarations[0];
             if (nodeDeclarations.name.getText(node.getSourceFile()) !== "handler") {
@@ -50,24 +48,9 @@ function extract(file: string, identifier: string): void {
                 return;
             }
 
-            console.log(JSON.stringify(arrowFunction.parameters.map(x => serialiseType(typeChecker, x.type)), null, 4))
-            // console.log({
-            //     ...arrowFunction,
-            //     parent: null
-            // })
-            //console.log(node.getChildren(sourceFile))
-            // console.log(
-            //     declaration
-
-            // )
-            // console.log({
-            //     ...declaration,
-            //     parent: null,
-            // });
-        }
-
-        if (name === "handler") {
-            foundNodes.push(processNode(typeChecker, file, node as any))
+            foundNodes.push(
+                processNode(typeChecker, file, arrowFunction)
+            )
         } else {
             unresolvedNodes.push(node)
         }
@@ -79,7 +62,7 @@ function extract(file: string, identifier: string): void {
         process.exitCode = 1;
     } else {
         foundNodes.map(f => {
-            console.log(f)
+            console.log(JSON.stringify(f, null, 4))
         });
     }
 }
@@ -92,57 +75,72 @@ function isNodeExported(node: ts.Node): boolean {
 }
 
 
-
-function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.MethodDeclaration) {
+function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.ArrowFunction) {
     const [summary, description] = getFunctionComments(node).split("\n");
-    console.log({
-        ...node,
-        parent: null
-    })
-    console.log(typeChecker.getSignatureFromDeclaration(node))
+
     return {
         path: path.relative(__dirname, path.join(__dirname, file)),
         summary,
         description,
-        pathParameters: {
-
-        },
-        queryStringParameters: {
-
-        },
-        returns: {
-
-        }
+        inputType: node.parameters.map(param => serialiseType(typeChecker, param.type)),
+        returns: serialiseType(typeChecker, node.type)
     }
 }
 
+const _parsedAliases = new Set();
+const typeParams = new Map<ts.Symbol, ts.TypeNode>();
+
 function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
     const typeNodeSchema = {};
-
-    
-    if (ts.isTypeReferenceNode(type) || ts.isExpressionWithTypeArguments(type)) {
+    if (ts.isTypeReferenceNode(type)) {
         const typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        const declarations = typeReferenceShape.symbol.getDeclarations();
-        for(const declaration of declarations) {
-            extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
+        if (typeReferenceShape.symbol) {
+            if (type.typeArguments) {
+                for (const typeNode of type.typeArguments) {
+                    extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
+                }
+            }
+
+            const declarations = typeReferenceShape.symbol.getDeclarations();
+            for (const declaration of declarations) {
+                extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
+            }
+        } 
+        else if (typeReferenceShape.aliasSymbol) {
+            for (let i = 0; i < typeReferenceShape.aliasSymbol.declarations.length; i++) {
+                const declaration = typeReferenceShape.aliasSymbol.declarations[i];
+                if (!_parsedAliases.has(declaration)) {
+                    _parsedAliases.add(declaration)
+                    if (type.typeArguments) {
+                        if (ts.isTypeAliasDeclaration(declaration)) {
+                            typeParams.set(typeChecker.getTypeAtLocation(declaration.typeParameters[i]).symbol, serialiseType(typeChecker, type.typeArguments[i]));
+                        }
+                    }
+                    extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
+                }
+            }
+        } else if (typeReferenceShape.aliasTypeArguments) {
+            for (const aliasTypeArgument of typeReferenceShape.aliasTypeArguments) {
+                for (const declaration of aliasTypeArgument.symbol.declarations) {
+                    extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
+                }
+            }
         }
+    } else if (ts.isExpressionWithTypeArguments(type)) {
         if (type.typeArguments) {
             for (const typeNode of type.typeArguments) {                
                 extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
             }
         }
-        if (ts.isTypeReferenceNode(type) && (type as any).members) {
-            for (const typeNode of (type as any).members) {
-                extend(typeNodeSchema, serialiseType(typeChecker, typeNode as unknown as ts.TypeNode))
-            }
-        }
-
-    } else if (ts.isIdentifier(type)) {
+    }
+    else if (ts.isIdentifier(type)) {
         const typeReferenceShape = typeChecker.getTypeAtLocation(type);
         const declarations = typeReferenceShape.symbol.getDeclarations();
-        for(const declaration of declarations) {
+        for (const declaration of declarations) {
             extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
         }
+    } else if (ts.isTypeAliasDeclaration(type)) {
+        extend(typeNodeSchema, serialiseType(typeChecker, type.type as ts.TypeNode));
     } else if (ts.isPropertySignature(type)) {
         typeNodeSchema[type.name.getText()] = serialiseType(typeChecker, type.type as ts.TypeNode)
     }
@@ -152,41 +150,36 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode) {
         }
     } else if (ts.isInterfaceDeclaration(type)) {
         if (type.heritageClauses) {
-            for(const heritage of type.heritageClauses) {
-                for(const typeNode of heritage.types) {
+            for (const heritage of type.heritageClauses) {
+                for (const typeNode of heritage.types) {
                     extend(typeNodeSchema, serialiseType(typeChecker, typeNode as ts.TypeNode))
                 }
             }
         }
-        for(const member of type.members) {
+        for (const member of type.members) {
             extend(typeNodeSchema, serialiseType(typeChecker, member as any))
         }
     } else if (ts.isIndexedAccessTypeNode(type)) {
         return serialiseType(typeChecker, type.objectType)
-        // const typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        // const declarations = typeReferenceShape.symbol.getDeclarations();
-        // for(const declaration of declarations) {
-        //     extend(typeNodeSchema[type.indexType.getFullText()], serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
-        // }
-
-        //return serialiseType(typeChecker, type.objectType)
-    } else if(ts.isIntersectionTypeNode(type)) {
-        for(const typeNode of type.types) {
+    } else if (ts.isIntersectionTypeNode(type)) {
+        for (const typeNode of type.types) {
             extend(typeNodeSchema, serialiseType(typeChecker, typeNode))
         }
     } else if (ts.isTypeParameterDeclaration(type)) {
-        // console.log(type);
+        // pass
+        return typeParams.get(typeChecker.getTypeAtLocation(type).symbol)
     } else {
-        return typeName(type);
+        return typeName(typeChecker, type);
     }
 
+    // console.log(typeNodeSchema);
     if (Object.keys(typeNodeSchema).length) {
         return typeNodeSchema;
     }
     return undefined
 }
 
-function getFunctionComments(node: ts.MethodDeclaration): string {
+function getFunctionComments(node: ts.MethodDeclaration | ts.ArrowFunction): string {
     // const [commentRange] = ts.getLeadingCommentRanges(node.getSourceFile().getFullText(), node.getFullStart())
     // const comment = node.getSourceFile().getFullText().slice(commentRange.pos, commentRange.end)
     // console.log(comment)
@@ -197,64 +190,67 @@ function getFunctionComments(node: ts.MethodDeclaration): string {
     // console.log((jsDocTags[0].parent as any).comment);
 }
 
-function typeName(node: ts.TypeNode): string {
-    if (!node) {
-      return ""
-    }
-  
-    if (ts.isArrayTypeNode(node)) {
-      return `Array<${typeName(node.elementType)}>`
-    }
-  
-    if (ts.isTupleTypeNode(node)) {
-      return `[${node.elementTypes.map(it => typeName(it))}]`
-    }
-  
-    if (ts.isUnionTypeNode(node)) {
-      return node.types.map(typeName).join(" | ")
-    }
-    // if (ts.isTypeReferenceNode(node)) {
-    //   let name = tokenName(node.typeName)
-    //   if (node.typeArguments) {
-    //     name += `<${node.typeArguments.map(it => typeName(it)).join(", ")}>`
-    //   }
-    //   return name
-    // }
-    if (ts.isFunctionTypeNode(node)) {
-      return node.getText()
+function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
+    if (ts.isTypeReferenceNode(node) || ts.isTypeLiteralNode(node)) {
+        return {
+            type: "object",
+            properties: serialiseType(typeChecker, node)
+        }
     }
 
-    if (ts.isTypeLiteralNode(node) || ts.isLiteralTypeNode(node)) {
-      return node.getText()
+    if (ts.isArrayTypeNode(node)) {
+        return {
+            type: "array",
+            items: {
+                type: node.elementType
+            }
+        }
     }
-    if (ts.isExpressionWithTypeArguments(node)) {
-      return node.getText()
+
+    if (ts.isUnionTypeNode(node)) {
+        return {
+            $oneOf: node.types.map(type => typeName(typeChecker, type))
+        }
     }
-    if (ts.isTypeOperatorNode(node)) {
-      return node.getText()
+
+    if (ts.isLiteralTypeNode(node)) {
+        const isBoolean = [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.BooleanKeyword].includes(node.literal.kind)
+        return {
+            type: isBoolean ? "boolean" : "string",
+            enum: [isBoolean ? (node.getText() === "false" ? false : true) : node.getText()]
+        }
     }
+
+
+    // if (ts.isExpressionWithTypeArguments(node)) {
+    //   return node.getText()
+    // }
+    // if (ts.isTypeOperatorNode(node)) {
+    //   return node.getText()
+    // }
     switch (node.kind) {
-      case ts.SyntaxKind.StringKeyword:
-        return "string"
-      case ts.SyntaxKind.BooleanKeyword:
-        return "boolean"
-      case ts.SyntaxKind.NumberKeyword:
-        return "number"
-      case ts.SyntaxKind.AnyKeyword:
-        return "any"
-      case ts.SyntaxKind.VoidKeyword:
-        return "void"
-      case ts.SyntaxKind.NullKeyword:
-        return "null"
-      case ts.SyntaxKind.UndefinedKeyword:
-        return "undefined"
-      case ts.SyntaxKind.NeverKeyword:
-        return "never"
+        case ts.SyntaxKind.StringKeyword:
+            return { type: "string" }
+        case ts.SyntaxKind.BooleanKeyword:
+            return { type: "boolean" }
+        case ts.SyntaxKind.NumberKeyword:
+            return { type: "number" }
+        case ts.SyntaxKind.AnyKeyword:
+            return { type: "any" }
+        case ts.SyntaxKind.VoidKeyword:
+            return { type: "void" }
+        case ts.SyntaxKind.NullKeyword:
+            return { type: "null" }
+        case ts.SyntaxKind.UndefinedKeyword:
+            return { type: "undefined" }
+        case ts.SyntaxKind.NeverKeyword:
+            return { type: "never" }
     }
 
     console.error("Type not handled:", node.kind, ts.SyntaxKind[node.kind], node.getText())
     return ""
-  }
+}
 
 // Run the extract function with the script's arguments
-extract("./handlers/handler.ts", "handler");
+extract("./handlers/handler.inline.ts", "handler");
+//extract("./handlers/handler.typeRef.ts", "handler");
