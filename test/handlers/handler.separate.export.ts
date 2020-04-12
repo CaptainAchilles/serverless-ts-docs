@@ -43,10 +43,10 @@ type HandlerEvent = {
         rando: string
     },
     queryStringParameters: {
-        doTHeGuy: string
+        filter: string
     },
     pathParameters: {
-        push: true | false
+        loggedIn: true | false
     }
 };
 
@@ -60,7 +60,7 @@ type HandlerResponse = { ss: number };
 const handler = (event: AuthorisedHTTPEvent<HandlerEvent>): APIResponse<HandlerResponse> => {
     const a = event.headers["x-userid"];
 
-    event.pathParameters.push;
+    event.pathParameters.loggedIn;
 
     const header = event.headers["authorization"];
     if (header > 200) {

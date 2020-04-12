@@ -48,13 +48,13 @@ export const handler = (event: AuthorisedHTTPEvent<{
         rando: string
     },
     queryStringParameters: {
-        doTHeGuy: string
+        filter: string
     },
     pathParameters: {
-        push: true | false
+        loggedIn: true | false
     }
 }>): APIResponse<{ ss: number }> => {
-    event.pathParameters.push;
+    event.pathParameters.loggedIn;
     return {
         statusCode: 200,
         body: {

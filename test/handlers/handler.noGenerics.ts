@@ -8,10 +8,10 @@ export const handler = (event: {
         rando: string
     },
     queryStringParameters: {
-        doTHeGuy: string
+        filter: string
     },
     pathParameters: {
-        push: true | false
+        loggedIn: true | false
     }
 }): {
     statusCode: number,

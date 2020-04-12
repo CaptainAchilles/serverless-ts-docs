@@ -1,5 +1,2 @@
-- Few tests
-- Clean up enum types where possible
-- Pipe to openAPI file
 - Get inline types working :/ 
 - Support Omit, etc.

@@ -25,7 +25,7 @@ const baseExpectedResult = (path: string) => [{
                 "queryStringParameters": {
                     type: "object",
             properties: {
-                    "doTHeGuy": {
+                    "filter": {
                         "type": "string"
                     }
                 }
@@ -33,7 +33,7 @@ const baseExpectedResult = (path: string) => [{
                 "pathParameters": {
                     type: "object",
             properties: {
-                    "push": {
+                    "loggedIn": {
                         "type": "boolean",
                         enum: [true, false]
                     }
@@ -135,7 +135,7 @@ export default [{
                         "queryStringParameters": {
                             "type": "object",
                             "properties": {
-                                doTHeGuy: {
+                                filter: {
                                     type: "string"
                                 }
                             }
@@ -143,7 +143,7 @@ export default [{
                         "pathParameters": {
                             "type": "object",
                             "properties": {
-                                "push": {
+                                "loggedIn": {
                                     "type": "boolean",
                                     "enum": [true, false]
                                 }
