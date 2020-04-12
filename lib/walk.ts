@@ -64,18 +64,26 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode): { [key: 
     if (ts.isTypeReferenceNode(type)) {
         const typeReferenceShape = typeChecker.getTypeAtLocation(type);
         const symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol
+        const maybeTypeArguments = typeChecker.getTypeArguments(typeReferenceShape as ts.TypeReference);
+
+        // TODO: There's gotta be a better way than keeping a global map...
+        const typeArguments = (
+            type.typeArguments ||
+            (typeReferenceShape.aliasTypeArguments && typeReferenceShape.aliasTypeArguments.length ? typeReferenceShape.aliasTypeArguments[0].symbol.getDeclarations() : null) || 
+            (maybeTypeArguments.length ? maybeTypeArguments[0].symbol.getDeclarations() : null)
+        ) as ts.NodeArray<ts.TypeNode>
         if (symbol) {
-            if (type.typeArguments) {
-                heritageTypeParams.set(symbol, type.typeArguments)
+            if (typeArguments) {
+                heritageTypeParams.set(symbol, typeArguments)
             }
             const declarations = symbol.getDeclarations();
             if (declarations) {
                 for (let i = 0; i < declarations.length; i++) {
                     const declaration = declarations[i];
                     if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
-                        if (type.typeArguments && declaration.typeParameters) {
+                        if (typeArguments && declaration.typeParameters) {
                             for (const typeParam of declaration.typeParameters) {
-                                heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments)
+                                heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, typeArguments)
                             }
                         }
                     }
@@ -138,7 +146,7 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode): { [key: 
         // Run up the chain until we find the heritage parameter
         const order = [
             type,
-            (type.parent as any).type
+            (type.parent as any)
         ]
         for (const path of order) {
             const exists = heritageTypeParams.get(typeChecker.getTypeAtLocation(path).symbol)

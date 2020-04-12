@@ -106,12 +106,12 @@ export default [{
     //     identifier: "handler",
     //     expectedResult: baseExpectedResult("handlers/handler.separate.export.ts")
     // },
-    // {
-    //     // This one doesn't work. Export with type params
-    //     filePath: resolve(__dirname, "handlers/handler.typeRef.ts"),
-    //     identifier: "handler",
-    //     expectedResult: baseExpectedResult("handlers/handler.typeRef.ts")
-    // },
+    {
+        // Export with named type params
+        filePath: resolve(__dirname, "handlers/handler.typeRef.ts"),
+        identifier: "handler",
+        expectedResult: baseExpectedResult("handlers/handler.typeRef.ts")
+    },
     {
     // Supports types with no generics
         filePath: resolve(__dirname, "handlers/handler.noGenerics.ts"),
