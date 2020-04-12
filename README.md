@@ -19,7 +19,7 @@ $ npm start -- ./test/handlers/handler.inline.ts handler
                 "\"Authorization\"": {
                     "type": "string"
                 },
-                "\"x-rita-userid\"": {
+                "\"x-userid\"": {
                     "type": "string"
                 },
                 "rando": {

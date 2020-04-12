@@ -14,8 +14,27 @@ export interface SchemaDoc {
 }
 
 function getFunctionComments(node: ts.SignatureDeclaration): string {
-    const jsDocTags = ts.getJSDocTags(node);
-    return (jsDocTags[0].parent as any).comment
+    // Traverse the tree until we find the jsdoc
+    let jsDocNode: ts.Node = node;
+
+    while (!(ts.isVariableStatement(jsDocNode) || ts.isFunctionDeclaration(jsDocNode))) {
+        if (jsDocNode.parent) {
+            jsDocNode = jsDocNode.parent
+        } else {
+            return "";
+        }
+    }
+
+    if ((jsDocNode as any).jsDoc && (jsDocNode as any).jsDoc[0]) {
+        return (jsDocNode as any).jsDoc[0].comment
+    }
+
+    const commentRanges = ts.getLeadingCommentRanges(jsDocNode.getSourceFile().getFullText(), jsDocNode.getFullStart())
+    if (!commentRanges) {
+        return "";
+    }
+    const comment = node.getSourceFile().getFullText().slice(commentRanges[0].pos, commentRanges[0].end)
+    return comment;
 }
 
 export function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.SignatureDeclaration): SchemaDoc {
@@ -25,7 +44,7 @@ export function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.
     }
 
     return {
-        path: path.relative(__dirname, path.join(__dirname, file)),
+        path: path.relative(__dirname, file),
         summary,
         description,
         inputType: node.parameters.map(param => {
@@ -82,11 +101,21 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode): { [key: 
     } else if (ts.isTypeAliasDeclaration(type)) {
         extend(typeNodeSchema, serialiseType(typeChecker, type.type as ts.TypeNode));
     } else if (ts.isPropertySignature(type)) {
-        typeNodeSchema[type.name.getText()] = serialiseType(typeChecker, type.type as ts.TypeNode)
+        const result = serialiseType(typeChecker, type.type as ts.TypeNode);
+        // if (ts.isTypeLiteralNode(type.type as ts.TypeNode)) {
+        //     typeNodeSchema[type.name.getText().replace(/"/gi, "")] = {
+        //         type: "object",
+        //         properties: result
+        //     }
+        // } else {
+            typeNodeSchema[type.name.getText().replace(/"/gi, "")] = result;
+        // }
     }
     else if (ts.isTypeLiteralNode(type)) {
+        typeNodeSchema["type"] = "object"
+        typeNodeSchema["properties"] = {}
         for (const member of type.members) {
-            extend(typeNodeSchema, serialiseType(typeChecker, member as unknown as ts.TypeNode))
+            extend(typeNodeSchema["properties"], serialiseType(typeChecker, member as unknown as ts.TypeNode))
         }
     } else if (ts.isInterfaceDeclaration(type)) {
         if (type.heritageClauses) {
@@ -130,10 +159,7 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode): { [key: 
 
 function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
     if (ts.isTypeReferenceNode(node) || ts.isTypeLiteralNode(node)) {
-        return {
-            type: "object",
-            properties: serialiseType(typeChecker, node)
-        }
+        return serialiseType(typeChecker, node)
     }
 
     if (ts.isArrayTypeNode(node)) {
@@ -146,6 +172,16 @@ function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
     }
 
     if (ts.isUnionTypeNode(node)) {
+        const allArePrimitive = node.types.every(x => ts.isLiteralTypeNode(x))
+        const mappedTypes = node.types.map(type => typeName(typeChecker, type))
+        const allHaveSameType = mappedTypes.every(x => x.type === mappedTypes[0].type)
+        if (allArePrimitive && allHaveSameType) {
+            return {
+                type: mappedTypes[0].type,
+                enum: node.types.flatMap(type => typeName(typeChecker, type).enum)
+            }
+        }
+
         return {
             $oneOf: node.types.map(type => typeName(typeChecker, type))
         }

@@ -22,7 +22,7 @@ interface HTTPEvent<T extends LambdaHTTPEvent> {
 
 type AuthHeaders = {
     headers: {
-        "Authorization": string;
+        Authorization: string;
         "x-userid": string;
     }
 }
@@ -45,16 +45,10 @@ type APIResponse<T> = {
  */
 export const handler = (event: AuthorisedHTTPEvent<{
     headers: {
-        rando: string
+        Authorization: number;
+        newHeader: string
     },
-    queryStringParameters: {
-        doTHeGuy: string
-    },
-    pathParameters: {
-        push: true | false
-    }
 }>): APIResponse<{ ss: number }> => {
-    event.pathParameters.push;
     return {
         statusCode: 200,
         body: {

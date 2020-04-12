@@ -7,8 +7,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-var ts = __importStar(require("typescript"));
-var walk_1 = require("./walk");
+const ts = __importStar(require("typescript"));
+const walk_1 = require("./walk");
 /** This doesn't work when something is exported separate to it's declaration */
 function isNodeExported(node) {
     return ((ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0 ||
@@ -25,7 +25,7 @@ function matches(node, identifier) {
     }
     else if (ts.isVariableDeclaration(node) &&
         node.name.getFullText().trim() === identifier) {
-        var found = node.getChildren().find(function (x) { return ts.isArrowFunction(x); });
+        const found = node.getChildren().find(x => ts.isArrowFunction(x));
         if (found) {
             return found;
         }
@@ -33,8 +33,8 @@ function matches(node, identifier) {
     }
 }
 function findExportHandler(parent, identifier, done) {
-    parent.forEachChild(function (node) {
-        var found = matches(node, identifier);
+    parent.forEachChild((node) => {
+        const found = matches(node, identifier);
         found ? done(found) : findExportHandler(node, identifier, done);
     });
 }
@@ -47,44 +47,40 @@ function findExportHandler(parent, identifier, done) {
 function extract(file, identifier) {
     // Create a Program to represent the project, then pull out the
     // source file to parse its AST.
-    var program = ts.createProgram([file], {
+    let program = ts.createProgram([file], {
         allowJs: true
     });
-    var sourceFile = program.getSourceFile(file);
+    const sourceFile = program.getSourceFile(file);
     if (!sourceFile) {
         throw new Error("Failed to load the file");
     }
     // Init the type checker
-    var typeChecker = program.getTypeChecker();
-    var foundNodes = [];
+    const typeChecker = program.getTypeChecker();
+    const foundNodes = [];
     // Loop through the root AST nodes of the file
-    ts.forEachChild(sourceFile, function (node) {
-        var found = matches(node, identifier);
+    ts.forEachChild(sourceFile, node => {
+        const found = matches(node, identifier);
         if (found) {
             foundNodes.push(walk_1.processNode(typeChecker, file, found));
         }
         else {
-            findExportHandler(node, identifier, function (exportHandler) {
+            findExportHandler(node, identifier, exportHandler => {
                 foundNodes.push(walk_1.processNode(typeChecker, file, exportHandler));
             });
         }
     });
     // Either print the found nodes, or offer a list of what identifiers were found
     if (!foundNodes.length) {
-        console.log("Could not find '" + identifier + "' in " + file + ". (Have your exported a '" + identifier + "' function?)");
+        console.log(`Could not find '${identifier}' in ${file}. (Have your exported a '${identifier}' function?)`);
         process.exitCode = 1;
     }
-    else {
-        foundNodes.map(function (f) {
-            console.log(JSON.stringify(f, null, 4));
-        });
-    }
+    return foundNodes;
 }
 exports.extract = extract;
 if (require.main === module) {
     if (process.argv.length < 3 || process.argv.length > 4) {
-        console.log("Usage: " + process.argv[0] + " fileName exportFunction");
+        console.log(`Usage: ${process.argv[0]} fileName exportFunction`);
     }
-    var lastTwoArgs = process.argv.slice(process.argv.length - 2);
-    extract(lastTwoArgs[0], lastTwoArgs[1]);
+    const lastTwoArgs = process.argv.slice(process.argv.length - 2);
+    console.log(JSON.stringify(extract(lastTwoArgs[0], lastTwoArgs[1]), null, 4));
 }

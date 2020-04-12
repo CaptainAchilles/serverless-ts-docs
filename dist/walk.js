@@ -10,23 +10,40 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-var ts = __importStar(require("typescript"));
-var path = __importStar(require("path"));
-var deep_extend_1 = __importDefault(require("deep-extend"));
+const ts = __importStar(require("typescript"));
+const path = __importStar(require("path"));
+const deep_extend_1 = __importDefault(require("deep-extend"));
 function getFunctionComments(node) {
-    var jsDocTags = ts.getJSDocTags(node);
-    return jsDocTags[0].parent.comment;
+    // Traverse the tree until we find the jsdoc
+    let jsDocNode = node;
+    while (!(ts.isVariableStatement(jsDocNode) || ts.isFunctionDeclaration(jsDocNode))) {
+        if (jsDocNode.parent) {
+            jsDocNode = jsDocNode.parent;
+        }
+        else {
+            return "";
+        }
+    }
+    if (jsDocNode.jsDoc && jsDocNode.jsDoc[0]) {
+        return jsDocNode.jsDoc[0].comment;
+    }
+    const commentRanges = ts.getLeadingCommentRanges(jsDocNode.getSourceFile().getFullText(), jsDocNode.getFullStart());
+    if (!commentRanges) {
+        return "";
+    }
+    const comment = node.getSourceFile().getFullText().slice(commentRanges[0].pos, commentRanges[0].end);
+    return comment;
 }
 function processNode(typeChecker, file, node) {
-    var _a = getFunctionComments(node).split("\n"), summary = _a[0], description = _a[1];
+    const [summary, description] = getFunctionComments(node).split("\n");
     if (!node.type) {
         throw new Error("Found function does not have a `type`: " + node.getFullText());
     }
     return {
-        path: path.relative(__dirname, path.join(__dirname, file)),
-        summary: summary,
-        description: description,
-        inputType: node.parameters.map(function (param) {
+        path: path.relative(__dirname, file),
+        summary,
+        description,
+        inputType: node.parameters.map(param => {
             if (!param.type) {
                 throw new Error("Node parameter does not have a `type`: " + param.getFullText());
             }
@@ -36,24 +53,23 @@ function processNode(typeChecker, file, node) {
     };
 }
 exports.processNode = processNode;
-var heritageTypeParams = new Map();
+const heritageTypeParams = new Map();
 function serialiseType(typeChecker, type) {
-    var typeNodeSchema = {};
+    const typeNodeSchema = {};
     if (ts.isTypeReferenceNode(type)) {
-        var typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        var symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol;
+        const typeReferenceShape = typeChecker.getTypeAtLocation(type);
+        const symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol;
         if (symbol) {
             if (type.typeArguments) {
                 heritageTypeParams.set(symbol, type.typeArguments);
             }
-            var declarations = symbol.getDeclarations();
+            const declarations = symbol.getDeclarations();
             if (declarations) {
-                for (var i = 0; i < declarations.length; i++) {
-                    var declaration = declarations[i];
+                for (let i = 0; i < declarations.length; i++) {
+                    const declaration = declarations[i];
                     if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
                         if (type.typeArguments && declaration.typeParameters) {
-                            for (var _i = 0, _a = declaration.typeParameters; _i < _a.length; _i++) {
-                                var typeParam = _a[_i];
+                            for (const typeParam of declaration.typeParameters) {
                                 heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments);
                             }
                         }
@@ -65,18 +81,16 @@ function serialiseType(typeChecker, type) {
     }
     else if (ts.isExpressionWithTypeArguments(type)) {
         if (type.typeArguments) {
-            for (var _b = 0, _c = type.typeArguments; _b < _c.length; _b++) {
-                var typeNode = _c[_b];
+            for (const typeNode of type.typeArguments) {
                 deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
             }
         }
     }
     else if (ts.isIdentifier(type)) {
-        var typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        var declarations = typeReferenceShape.symbol.getDeclarations();
+        const typeReferenceShape = typeChecker.getTypeAtLocation(type);
+        const declarations = typeReferenceShape.symbol.getDeclarations();
         if (declarations) {
-            for (var _d = 0, declarations_1 = declarations; _d < declarations_1.length; _d++) {
-                var declaration = declarations_1[_d];
+            for (const declaration of declarations) {
                 deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, declaration));
             }
         }
@@ -85,26 +99,32 @@ function serialiseType(typeChecker, type) {
         deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, type.type));
     }
     else if (ts.isPropertySignature(type)) {
-        typeNodeSchema[type.name.getText()] = serialiseType(typeChecker, type.type);
+        const result = serialiseType(typeChecker, type.type);
+        // if (ts.isTypeLiteralNode(type.type as ts.TypeNode)) {
+        //     typeNodeSchema[type.name.getText().replace(/"/gi, "")] = {
+        //         type: "object",
+        //         properties: result
+        //     }
+        // } else {
+        typeNodeSchema[type.name.getText().replace(/"/gi, "")] = result;
+        // }
     }
     else if (ts.isTypeLiteralNode(type)) {
-        for (var _e = 0, _f = type.members; _e < _f.length; _e++) {
-            var member = _f[_e];
-            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, member));
+        typeNodeSchema["type"] = "object";
+        typeNodeSchema["properties"] = {};
+        for (const member of type.members) {
+            deep_extend_1.default(typeNodeSchema["properties"], serialiseType(typeChecker, member));
         }
     }
     else if (ts.isInterfaceDeclaration(type)) {
         if (type.heritageClauses) {
-            for (var _g = 0, _h = type.heritageClauses; _g < _h.length; _g++) {
-                var heritage = _h[_g];
-                for (var _j = 0, _k = heritage.types; _j < _k.length; _j++) {
-                    var typeNode = _k[_j];
+            for (const heritage of type.heritageClauses) {
+                for (const typeNode of heritage.types) {
                     deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
                 }
             }
         }
-        for (var _l = 0, _m = type.members; _l < _m.length; _l++) {
-            var member = _m[_l];
+        for (const member of type.members) {
             deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, member));
         }
     }
@@ -112,20 +132,18 @@ function serialiseType(typeChecker, type) {
         return serialiseType(typeChecker, type.objectType);
     }
     else if (ts.isIntersectionTypeNode(type)) {
-        for (var _o = 0, _p = type.types; _o < _p.length; _o++) {
-            var typeNode = _p[_o];
+        for (const typeNode of type.types) {
             deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
         }
     }
     else if (ts.isTypeParameterDeclaration(type)) {
         // Run up the chain until we find the heritage parameter
-        var order = [
+        const order = [
             type,
             type.parent.type
         ];
-        for (var _q = 0, order_1 = order; _q < order_1.length; _q++) {
-            var path_1 = order_1[_q];
-            var exists = heritageTypeParams.get(typeChecker.getTypeAtLocation(path_1).symbol);
+        for (const path of order) {
+            const exists = heritageTypeParams.get(typeChecker.getTypeAtLocation(path).symbol);
             if (exists) {
                 return serialiseType(typeChecker, exists[0]);
             }
@@ -141,10 +159,7 @@ function serialiseType(typeChecker, type) {
 }
 function typeName(typeChecker, node) {
     if (ts.isTypeReferenceNode(node) || ts.isTypeLiteralNode(node)) {
-        return {
-            type: "object",
-            properties: serialiseType(typeChecker, node)
-        };
+        return serialiseType(typeChecker, node);
     }
     if (ts.isArrayTypeNode(node)) {
         return {
@@ -155,12 +170,21 @@ function typeName(typeChecker, node) {
         };
     }
     if (ts.isUnionTypeNode(node)) {
+        const allArePrimitive = node.types.every(x => ts.isLiteralTypeNode(x));
+        const mappedTypes = node.types.map(type => typeName(typeChecker, type));
+        const allHaveSameType = mappedTypes.every(x => x.type === mappedTypes[0].type);
+        if (allArePrimitive && allHaveSameType) {
+            return {
+                type: mappedTypes[0].type,
+                enum: node.types.flatMap(type => typeName(typeChecker, type).enum)
+            };
+        }
         return {
-            $oneOf: node.types.map(function (type) { return typeName(typeChecker, type); })
+            $oneOf: node.types.map(type => typeName(typeChecker, type))
         };
     }
     if (ts.isLiteralTypeNode(node)) {
-        var isBoolean = [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.BooleanKeyword].includes(node.literal.kind);
+        const isBoolean = [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.BooleanKeyword].includes(node.literal.kind);
         return {
             type: isBoolean ? "boolean" : "string",
             enum: [isBoolean ? (node.getText() === "false" ? false : true) : node.getText()]

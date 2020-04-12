@@ -23,7 +23,7 @@ interface HTTPEvent<T extends LambdaHTTPEvent> {
 type AuthHeaders = {
     headers: {
         Authorization: string;
-        "x-rita-userid": string;
+        "x-userid": string;
     }
 }
 interface AuthorisedHTTPEvent<T> extends HTTPEvent<AuthHeaders & T> { }
@@ -59,7 +59,7 @@ type HandlerResponse = { ss: number };
  * @param {number} a
  */
 export function handler(event: AuthorisedHTTPEvent<HandlerEvent>): APIResponse<HandlerResponse> {
-    const a = event.headers["x-rita-userid"];
+    const a = event.headers["x-userid"];
 
     event.pathParameters.push;
 

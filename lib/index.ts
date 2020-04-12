@@ -42,7 +42,7 @@ function findExportHandler(parent: ts.Node, identifier: string, done: (node: ts.
  * @param file a path to a file
  * @param identifier top level identifiers available
  */
-export function extract(file: string, identifier: string): void {
+export function extract(file: string, identifier: string): SchemaDoc[] {
     // Create a Program to represent the project, then pull out the
     // source file to parse its AST.
     let program = ts.createProgram([file], {
@@ -78,11 +78,9 @@ export function extract(file: string, identifier: string): void {
     if (!foundNodes.length) {
         console.log(`Could not find '${identifier}' in ${file}. (Have your exported a '${identifier}' function?)`);
         process.exitCode = 1;
-    } else {
-        foundNodes.map(f => {
-            console.log(JSON.stringify(f, null, 4))
-        });
     }
+
+    return foundNodes;
 }
 
 if (require.main === module) {
@@ -90,5 +88,5 @@ if (require.main === module) {
         console.log(`Usage: ${process.argv[0]} fileName exportFunction`)
     }
     const lastTwoArgs = process.argv.slice(process.argv.length - 2)
-    extract(lastTwoArgs[0], lastTwoArgs[1])
+    console.log(JSON.stringify(extract(lastTwoArgs[0], lastTwoArgs[1]), null, 4))
 }
