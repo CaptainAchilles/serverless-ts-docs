@@ -6,39 +6,39 @@ const baseExpectedResult = (path: string) => [{
     "description": "Gets of all the users in the account",
     "inputType": [
         {
-            "headers": {
-                "\"Authorization\"": {
-                    "type": "string"
+            type: "object",
+            properties: {
+                "headers": {
+                    type: "object",
+            properties: {
+                    "Authorization": {
+                        "type": "string"
+                    },
+                    "x-userid": {
+                        "type": "string"
+                    },
+                    "rando": {
+                        "type": "string"
+                    }
+                }
                 },
-                "\"x-userid\"": {
-                    "type": "string"
+                "queryStringParameters": {
+                    type: "object",
+            properties: {
+                    "doTHeGuy": {
+                        "type": "string"
+                    }
+                }
                 },
-                "rando": {
-                    "type": "string"
+                "pathParameters": {
+                    type: "object",
+            properties: {
+                    "push": {
+                        "type": "boolean",
+                        enum: [true, false]
+                    }
                 }
-            },
-            "queryStringParameters": {
-                "doTHeGuy": {
-                    "type": "string"
-                }
-            },
-            "pathParameters": {
-                "push": {
-                    "$oneOf": [
-                        {
-                            "type": "boolean",
-                            "enum": [
-                                true
-                            ]
-                        },
-                        {
-                            "type": "boolean",
-                            "enum": [
-                                false
-                            ]
-                        }
-                    ]
-                }
+            }
             }
         }
     ],
@@ -51,15 +51,21 @@ const baseExpectedResult = (path: string) => [{
                         "type": "number"
                     },
                     "body": {
+                        type: "object",
+            properties: {
                         "message": {
                             "type": "string"
                         },
                         "data": {
+                            type: "object",
+            properties: {
                             "ss": {
                                 "type": "number"
                             }
                         }
                     }
+                    }
+                }
                 }
             },
             {
@@ -69,10 +75,13 @@ const baseExpectedResult = (path: string) => [{
                         "type": "string"
                     },
                     "data": {
+                        type: "object",
+            properties: {
                         "ss": {
                             "type": "number"
                         }
                     }
+                }
                 }
             }
         ]
@@ -80,17 +89,17 @@ const baseExpectedResult = (path: string) => [{
 }];
 
 export default [{
-    //     // Inline Arrow function
-    //     filePath: resolve(__dirname, "handlers/handler.inline.ts"),
-    //     identifier: "handler",
-    //     expectedResult: baseExpectedResult("handlers/handler.inline.ts")
-    // },
-    // {
-    //     // Function declaration
-    //     filePath: resolve(__dirname, "handlers/handler.function.ts"),
-    //     identifier: "handler",
-    //     expectedResult: baseExpectedResult("handlers/handler.function.ts")
-    // },
+        // Inline Arrow function
+        filePath: resolve(__dirname, "handlers/handler.inline.ts"),
+        identifier: "handler",
+        expectedResult: baseExpectedResult("handlers/handler.inline.ts")
+    },
+    {
+        // Function declaration
+        filePath: resolve(__dirname, "handlers/handler.function.ts"),
+        identifier: "handler",
+        expectedResult: baseExpectedResult("handlers/handler.function.ts")
+    },
     // {
     //     // Arrow function with separate export
     //     filePath: resolve(__dirname, "handlers/handler.separate.export.ts"),
@@ -103,7 +112,7 @@ export default [{
     //     identifier: "handler",
     //     expectedResult: baseExpectedResult("handlers/handler.typeRef.ts")
     // },
-    //{
+    {
     // Supports types with no generics
         filePath: resolve(__dirname, "handlers/handler.noGenerics.ts"),
         identifier: "handler",

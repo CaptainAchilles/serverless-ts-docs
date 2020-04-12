@@ -41,7 +41,6 @@ type APIResponse<T> = {
 type HandlerEvent = {
     headers: {
         rando: string
-        Authorization: undefined
     },
     queryStringParameters: {
         doTHeGuy: string
