@@ -1,2 +1,2 @@
-- Get inline types working :/ 
+- use ts.getExportsOfModule to find export
 - Support Omit, etc.
