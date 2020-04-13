@@ -120,20 +120,32 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
             enum: [node.getText().replace(/"/gi, "")]
         }
     }
-    else if (ts.isTypeLiteralNode(node) || ts.isInterfaceDeclaration(node)) {
-        typeNodeSchema["type"] = "object";
-        typeNodeSchema["properties"] = {};
-        if (ts.isInterfaceDeclaration(node) && node.heritageClauses) {
+    else if (ts.isInterfaceDeclaration(node)) {
+        if (node.heritageClauses) {
             // Walk the heritage clauses (interface x *extends {}*)
             for (const property of node.heritageClauses) {
-                extend(typeNodeSchema["properties"], serialiseType(typeChecker, property, genericArgs));
+                extend(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
+            }
+        } else {
+            for (const property of node.members) {
+                extend(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
             }
         }
 
+        if (!typeNodeSchema.type) {
+            return {
+                type: "object",
+                properties: typeNodeSchema
+            };
+        }
+    }
+    else if (ts.isTypeLiteralNode(node) || ts.isInterfaceDeclaration(node)) {
+        typeNodeSchema["type"] = "object";
+        typeNodeSchema["properties"] = {};
         // Now merge in the rest of the properties
-        // for (const property of node.members) {
-        //     extend(typeNodeSchema["properties"], serialiseType(typeChecker, property, genericArgs));
-        // }
+        for (const property of node.members) {
+            extend(typeNodeSchema["properties"], serialiseType(typeChecker, property, genericArgs));
+        }
     }
     else if (ts.isHeritageClause(node)) {
         for (const property of node.types) {
@@ -152,7 +164,9 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
         return serialiseType(typeChecker, genericArgs.get(node)!, genericArgs)
     }
     else if (ts.isIndexedAccessTypeNode(node)) {
-        return serialiseType(typeChecker, node.objectType, genericArgs);
+        const lookupKey = serialiseType(typeChecker, node.indexType, genericArgs) as { type: string, enum: [string] };
+        const resultingObject = serialiseType(typeChecker, node.objectType, genericArgs) as { properties: any };
+        return resultingObject.properties[lookupKey.enum[0]];
     }
     else {
         switch (node.kind) {
@@ -174,5 +188,6 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
     if (Object.keys(typeNodeSchema).length) {
         return typeNodeSchema;
     }
+    
     return undefined
 }

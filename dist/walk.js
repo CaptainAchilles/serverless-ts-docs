@@ -118,8 +118,6 @@ function serialiseType(typeChecker, node, genericArgs) {
         };
     }
     else if (ts.isInterfaceDeclaration(node)) {
-        // typeNodeSchema["type"] = "object";
-        // typeNodeSchema["properties"] = {};
         if (node.heritageClauses) {
             // Walk the heritage clauses (interface x *extends {}*)
             for (const property of node.heritageClauses) {
