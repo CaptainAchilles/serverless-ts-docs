@@ -49,7 +49,7 @@ function processNode(typeChecker, file, node) {
             }
             return serialiseType(typeChecker, param.type, new Map());
         }),
-        returns: serialiseType(typeChecker, node.type, new Map())
+        // returns: serialiseType(typeChecker, node.type, new Map())
     };
 }
 
@@ -118,23 +118,30 @@ function serialiseType(typeChecker, node, genericArgs) {
         };
     }
     else if (ts.isInterfaceDeclaration(node)) {
+        // typeNodeSchema["type"] = "object";
+        // typeNodeSchema["properties"] = {};
         if (node.heritageClauses) {
             // Walk the heritage clauses (interface x *extends {}*)
             for (const property of node.heritageClauses) {
                 deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
             }
+        } else {
+            for (const property of node.members) {
+                deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
+            }
         }
 
-        for (const property of node.members) {
-            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
+        if (!typeNodeSchema.type) {
+            return {
+                type: "object",
+                properties: typeNodeSchema
+            };
         }
-        // // Now merge in the rest of the properties
-
     } else if (ts.isTypeLiteralNode(node)) {
-        // typeNodeSchema["type"] = "object";
-        // typeNodeSchema["properties"] = {};
+        typeNodeSchema["type"] = "object";
+        typeNodeSchema["properties"] = {};
         for (const property of node.members) {
-            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
+            deep_extend_1.default(typeNodeSchema["properties"], serialiseType(typeChecker, property, genericArgs));
         }
     }
     else if (ts.isHeritageClause(node)) {
@@ -154,7 +161,9 @@ function serialiseType(typeChecker, node, genericArgs) {
         return serialiseType(typeChecker, genericArgs.get(node), genericArgs);
     }
     else if (ts.isIndexedAccessTypeNode(node)) {
-        return serialiseType(typeChecker, node.objectType, genericArgs);
+        const lookupKey = serialiseType(typeChecker, node.indexType, genericArgs);
+        const resultingObject = serialiseType(typeChecker, node.objectType, genericArgs);
+        return resultingObject.properties[lookupKey.enum[0]];
     }
     else {
         switch (node.kind) {
