@@ -36,7 +36,7 @@ type APIResponseBody<T> = {
 type APIResponse<T> = {
     statusCode: number;
     body: APIResponseBody<T>
-} | APIResponseBody<T>
+}
 
 /**
  * Account Users

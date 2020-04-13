@@ -47,166 +47,133 @@ function processNode(typeChecker, file, node) {
             if (!param.type) {
                 throw new Error("Node parameter does not have a `type`: " + param.getFullText());
             }
-            return serialiseType(typeChecker, param.type);
+            return serialiseType(typeChecker, param.type, new Map());
         }),
-        returns: serialiseType(typeChecker, node.type)
+        returns: serialiseType(typeChecker, node.type, new Map())
     };
 }
+
 exports.processNode = processNode;
-const heritageTypeParams = new Map();
-function serialiseType(typeChecker, type) {
+function serialiseType(typeChecker, node, genericArgs) {
     const typeNodeSchema = {};
-    if (ts.isTypeReferenceNode(type)) {
-        const typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        const symbol = typeReferenceShape.symbol || typeReferenceShape.aliasSymbol;
+    const type = typeChecker.getTypeAtLocation(node);
+    if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node)) {
+        const identifier = node.getChildren().find(x => ts.isIdentifier(x));
+        const typeArguments = node.typeArguments;
+        const symbol = type.aliasSymbol || type.symbol;
         if (symbol) {
-            if (type.typeArguments) {
-                heritageTypeParams.set(symbol, type.typeArguments);
-            }
-            const declarations = symbol.getDeclarations();
-            if (declarations) {
-                for (let i = 0; i < declarations.length; i++) {
-                    const declaration = declarations[i];
-                    if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
-                        if (type.typeArguments && declaration.typeParameters) {
-                            for (const typeParam of declaration.typeParameters) {
-                                heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, type.typeArguments);
-                            }
-                        }
+            const typeDeclaration = symbol.declarations[0];
+            if (ts.isTypeAliasDeclaration(typeDeclaration) || ts.isInterfaceDeclaration(typeDeclaration)) {
+                const localMembers = typeDeclaration.typeParameters;
+                if (typeArguments && localMembers && typeArguments.length === localMembers.length) {
+                    for (let i = 0; i < typeArguments.length; i++) {
+                        genericArgs.set(localMembers[i], typeArguments[i]);
                     }
-                    deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, declaration));
                 }
             }
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, identifier, genericArgs));
         }
     }
-    else if (ts.isExpressionWithTypeArguments(type)) {
-        if (type.typeArguments) {
-            for (const typeNode of type.typeArguments) {
-                deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
+    else if (ts.isIdentifier(node)) {
+        // Get the node type declaration
+        for (const declaration of (type.aliasSymbol || type.symbol).declarations) {
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, declaration, genericArgs));
+        }
+    }
+    else if (ts.isTypeAliasDeclaration(node)) {
+        deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, node.type, genericArgs));
+    }
+    else if (ts.isUnionTypeNode(node)) {
+        // LiteralType is a primitive, TypeLiteral is an {} shape
+        const allArePrimitive = node.types.every(x => ts.isLiteralTypeNode(x));
+        const mappedTypes = node.types.map(nodeType => serialiseType(typeChecker, nodeType, genericArgs));
+        const allHaveSameType = mappedTypes.every(x => x.type === mappedTypes[0].type);
+        if (allArePrimitive && allHaveSameType) {
+            return {
+                type: mappedTypes[0].type,
+                enum: mappedTypes[0].enum
+            };
+        }
+        return {
+            $oneOf: mappedTypes
+        };
+    }
+    else if (ts.isLiteralTypeNode(node)) {
+        const isBoolean = [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.BooleanKeyword].includes(node.literal.kind);
+        if (isBoolean) {
+            return {
+                type: "boolean",
+                enum: [node.getText() === "false" ? false : true]
+            };
+        }
+        else if ([ts.SyntaxKind.NumericLiteral].includes(node.literal.kind)) {
+            return {
+                type: "number",
+                enum: [+node.getText().replace(/"/gi, "")]
+            };
+        }
+        return {
+            type: "string",
+            enum: [node.getText().replace(/"/gi, "")]
+        };
+    }
+    else if (ts.isInterfaceDeclaration(node)) {
+        if (node.heritageClauses) {
+            // Walk the heritage clauses (interface x *extends {}*)
+            for (const property of node.heritageClauses) {
+                deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
             }
         }
-    }
-    else if (ts.isIdentifier(type)) {
-        const typeReferenceShape = typeChecker.getTypeAtLocation(type);
-        const declarations = typeReferenceShape.symbol.getDeclarations();
-        if (declarations) {
-            for (const declaration of declarations) {
-                deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, declaration));
-            }
+
+        for (const property of node.members) {
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
+        }
+        // // Now merge in the rest of the properties
+
+    } else if (ts.isTypeLiteralNode(node)) {
+        // typeNodeSchema["type"] = "object";
+        // typeNodeSchema["properties"] = {};
+        for (const property of node.members) {
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
         }
     }
-    else if (ts.isTypeAliasDeclaration(type)) {
-        deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, type.type));
-    }
-    else if (ts.isPropertySignature(type)) {
-        const result = serialiseType(typeChecker, type.type);
-        // if (ts.isTypeLiteralNode(type.type as ts.TypeNode)) {
-        //     typeNodeSchema[type.name.getText().replace(/"/gi, "")] = {
-        //         type: "object",
-        //         properties: result
-        //     }
-        // } else {
-        typeNodeSchema[type.name.getText().replace(/"/gi, "")] = result;
-        // }
-    }
-    else if (ts.isTypeLiteralNode(type)) {
-        typeNodeSchema["type"] = "object";
-        typeNodeSchema["properties"] = {};
-        for (const member of type.members) {
-            deep_extend_1.default(typeNodeSchema["properties"], serialiseType(typeChecker, member));
+    else if (ts.isHeritageClause(node)) {
+        for (const property of node.types) {
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
         }
     }
-    else if (ts.isInterfaceDeclaration(type)) {
-        if (type.heritageClauses) {
-            for (const heritage of type.heritageClauses) {
-                for (const typeNode of heritage.types) {
-                    deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
-                }
-            }
-        }
-        for (const member of type.members) {
-            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, member));
+    else if (ts.isIntersectionTypeNode(node)) {
+        for (const typeNode of node.types) {
+            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode, genericArgs));
         }
     }
-    else if (ts.isIndexedAccessTypeNode(type)) {
-        return serialiseType(typeChecker, type.objectType);
+    else if (ts.isPropertySignature(node)) {
+        typeNodeSchema[node.name.getText().replace(/"/gi, "")] = serialiseType(typeChecker, node.type, genericArgs);
     }
-    else if (ts.isIntersectionTypeNode(type)) {
-        for (const typeNode of type.types) {
-            deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, typeNode));
-        }
+    else if (ts.isTypeParameterDeclaration(node)) {
+        return serialiseType(typeChecker, genericArgs.get(node), genericArgs);
     }
-    else if (ts.isTypeParameterDeclaration(type)) {
-        // Run up the chain until we find the heritage parameter
-        const order = [
-            type,
-            type.parent.type
-        ];
-        for (const path of order) {
-            const exists = heritageTypeParams.get(typeChecker.getTypeAtLocation(path).symbol);
-            if (exists) {
-                return serialiseType(typeChecker, exists[0]);
-            }
-        }
+    else if (ts.isIndexedAccessTypeNode(node)) {
+        return serialiseType(typeChecker, node.objectType, genericArgs);
     }
     else {
-        return typeName(typeChecker, type);
+        switch (node.kind) {
+            case ts.SyntaxKind.StringKeyword:
+                return { type: "string" };
+            case ts.SyntaxKind.BooleanKeyword:
+                return { type: "boolean", enum: [true, false] };
+            case ts.SyntaxKind.NumberKeyword:
+                return { type: "number" };
+            case ts.SyntaxKind.AnyKeyword:
+                return { type: "any" };
+            case ts.SyntaxKind.NullKeyword:
+                return { type: "null" };
+            default:
+                console.error("Type not handled:", node.kind, ts.SyntaxKind[node.kind], node.getText());
+        }
     }
     if (Object.keys(typeNodeSchema).length) {
         return typeNodeSchema;
     }
     return undefined;
-}
-function typeName(typeChecker, node) {
-    if (ts.isTypeReferenceNode(node) || ts.isTypeLiteralNode(node)) {
-        return serialiseType(typeChecker, node);
-    }
-    if (ts.isArrayTypeNode(node)) {
-        return {
-            type: "array",
-            items: {
-                type: node.elementType
-            }
-        };
-    }
-    if (ts.isUnionTypeNode(node)) {
-        const allArePrimitive = node.types.every(x => ts.isLiteralTypeNode(x));
-        const mappedTypes = node.types.map(type => typeName(typeChecker, type));
-        const allHaveSameType = mappedTypes.every(x => x.type === mappedTypes[0].type);
-        if (allArePrimitive && allHaveSameType) {
-            return {
-                type: mappedTypes[0].type,
-                enum: node.types.flatMap(type => typeName(typeChecker, type).enum)
-            };
-        }
-        return {
-            $oneOf: node.types.map(type => typeName(typeChecker, type))
-        };
-    }
-    if (ts.isLiteralTypeNode(node)) {
-        const isBoolean = [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.BooleanKeyword].includes(node.literal.kind);
-        return {
-            type: isBoolean ? "boolean" : "string",
-            enum: [isBoolean ? (node.getText() === "false" ? false : true) : node.getText()]
-        };
-    }
-    switch (node.kind) {
-        case ts.SyntaxKind.StringKeyword:
-            return { type: "string" };
-        case ts.SyntaxKind.BooleanKeyword:
-            return { type: "boolean" };
-        case ts.SyntaxKind.NumberKeyword:
-            return { type: "number" };
-        case ts.SyntaxKind.AnyKeyword:
-            return { type: "any" };
-        case ts.SyntaxKind.NullKeyword:
-            return { type: "null" };
-        case ts.SyntaxKind.VoidKeyword:
-        case ts.SyntaxKind.UndefinedKeyword:
-        case ts.SyntaxKind.NeverKeyword:
-            // Omit the key
-            return undefined;
-    }
-    console.error("Type not handled:", node.kind, ts.SyntaxKind[node.kind], node.getText());
-    return "";
 }
