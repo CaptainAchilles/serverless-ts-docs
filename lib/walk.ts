@@ -57,7 +57,7 @@ export function processNode(typeChecker: ts.TypeChecker, file: string, node: ts.
     }
 }
 
-const heritageTypeParams = new Map<ts.Symbol, ts.NodeArray<ts.TypeNode>>();
+const heritageTypeParams = new Map<ts.Symbol, ts.TypeNode>();
 function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode): { [key: string]: any } | undefined {
     const typeNodeSchema: { [key: string]: any } = {};
 
@@ -73,18 +73,22 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode): { [key: 
             (maybeTypeArguments.length ? maybeTypeArguments[0].symbol.getDeclarations() : null)
         ) as ts.NodeArray<ts.TypeNode>
         if (symbol) {
-            if (typeArguments) {
-                heritageTypeParams.set(symbol, typeArguments)
-            }
+            // if (typeArguments) {
+            //     heritageTypeParams.set(symbol, typeArguments)
+            // }
             const declarations = symbol.getDeclarations();
             if (declarations) {
                 for (let i = 0; i < declarations.length; i++) {
                     const declaration = declarations[i];
                     if (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) {
                         if (typeArguments && declaration.typeParameters) {
-                            for (const typeParam of declaration.typeParameters) {
-                                heritageTypeParams.set(typeChecker.getTypeAtLocation(typeParam).symbol, typeArguments)
+                            for (let j = 0; j < declaration.typeParameters.length; j++) {
+                                heritageTypeParams.set(typeChecker.getTypeAtLocation(declaration.typeParameters[j]).symbol, typeArguments[j])
                             }
+                        }
+                    } else if (typeArguments) {
+                        for (let j = 0; j < typeArguments.length; j++) {
+                            heritageTypeParams.set(typeChecker.getTypeAtLocation(declaration).symbol, typeArguments[j]);
                         }
                     }
                     extend(typeNodeSchema, serialiseType(typeChecker, declaration as unknown as ts.TypeNode))
@@ -151,7 +155,7 @@ function serialiseType(typeChecker: ts.TypeChecker, type: ts.TypeNode): { [key: 
         for (const path of order) {
             const exists = heritageTypeParams.get(typeChecker.getTypeAtLocation(path).symbol)
             if (exists) {
-                return serialiseType(typeChecker, exists[0]);
+                return serialiseType(typeChecker, exists);
             }
         }
 
@@ -197,9 +201,21 @@ function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
 
     if (ts.isLiteralTypeNode(node)) {
         const isBoolean = [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.BooleanKeyword].includes(node.literal.kind)
+        if (isBoolean) {
+            return {
+                type: "boolean",
+                enum: [node.getText() === "false" ? false : true]
+            }
+        } else if ([ts.SyntaxKind.NumericLiteral].includes(node.literal.kind)) {
+            return {
+                type: "number",
+                enum: [+node.getText().replace(/"/gi, "")]
+            }
+        }
+        
         return {
-            type: isBoolean ? "boolean" : "string",
-            enum: [isBoolean ? (node.getText() === "false" ? false : true) : node.getText()]
+            type: "string",
+            enum: [node.getText().replace(/"/gi, "")]
         }
     }
 
@@ -207,7 +223,7 @@ function typeName(typeChecker: ts.TypeChecker, node: ts.TypeNode): any {
         case ts.SyntaxKind.StringKeyword:
             return { type: "string" }
         case ts.SyntaxKind.BooleanKeyword:
-            return { type: "boolean" }
+            return { type: "boolean", enum: [true, false] };
         case ts.SyntaxKind.NumberKeyword:
             return { type: "number" }
         case ts.SyntaxKind.AnyKeyword:

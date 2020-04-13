@@ -1,2 +1,2 @@
+- Support Omit, Pick, etc.
 - use ts.getExportsOfModule to find export
-- Support Omit, etc.
