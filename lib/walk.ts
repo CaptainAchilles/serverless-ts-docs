@@ -63,6 +63,7 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
 
     if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node)) {
         const identifier = node.getChildren().find(x => ts.isIdentifier(x))!;
+        // TODO: Get the type arguments from the alias?
         const typeArguments = node.typeArguments;
         const symbol = type.aliasSymbol || type.symbol;
         if (symbol) {
@@ -94,7 +95,7 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
         if (allArePrimitive && allHaveSameType) {
             return {
                 type: mappedTypes[0].type,
-                enum: mappedTypes[0].enum
+                enum: Array.from(new Set(mappedTypes.flatMap(x => x.enum)))
             };
         }
         return {
@@ -158,7 +159,10 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
         }
     }
     else if (ts.isPropertySignature(node)) {
-        typeNodeSchema[node.name.getText().replace(/"/gi, "")] = serialiseType(typeChecker, node.type!, genericArgs);
+        const result = serialiseType(typeChecker, node.type!, genericArgs)
+        if (result) {
+            typeNodeSchema[node.name.getText().replace(/"/gi, "")] = result;
+        }
     }
     else if (ts.isTypeParameterDeclaration(node)) {
         return serialiseType(typeChecker, genericArgs.get(node)!, genericArgs)

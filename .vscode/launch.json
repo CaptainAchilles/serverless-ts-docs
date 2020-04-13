@@ -10,7 +10,7 @@
             "name": "Launch Program",
             "program": "${workspaceFolder}/dist/index.js",
             "args": [
-                "./test/handlers/handler.inline.ts",
+                "./test/handlers/handler.typeRef.ts",
                 "handler"
             ],
             "skipFiles": [

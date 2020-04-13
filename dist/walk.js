@@ -49,7 +49,7 @@ function processNode(typeChecker, file, node) {
             }
             return serialiseType(typeChecker, param.type, new Map());
         }),
-        // returns: serialiseType(typeChecker, node.type, new Map())
+        returns: serialiseType(typeChecker, node.type, new Map())
     };
 }
 
@@ -91,7 +91,8 @@ function serialiseType(typeChecker, node, genericArgs) {
         if (allArePrimitive && allHaveSameType) {
             return {
                 type: mappedTypes[0].type,
-                enum: mappedTypes[0].enum
+                // Take all unique values
+                enum: Array.from(new Set(mappedTypes.flatMap(x => x.enum)))
             };
         }
         return {
@@ -120,6 +121,7 @@ function serialiseType(typeChecker, node, genericArgs) {
     else if (ts.isInterfaceDeclaration(node)) {
         if (node.heritageClauses) {
             // Walk the heritage clauses (interface x *extends {}*)
+            // TODO: Don't merge in undefined here
             for (const property of node.heritageClauses) {
                 deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, property, genericArgs));
             }
@@ -161,7 +163,9 @@ function serialiseType(typeChecker, node, genericArgs) {
     else if (ts.isIndexedAccessTypeNode(node)) {
         const lookupKey = serialiseType(typeChecker, node.indexType, genericArgs);
         const resultingObject = serialiseType(typeChecker, node.objectType, genericArgs);
-        return resultingObject.properties[lookupKey.enum[0]];
+        if (resultingObject.properties[lookupKey.enum[0]]) {
+            return resultingObject.properties[lookupKey.enum[0]];
+        }
     }
     else {
         switch (node.kind) {
