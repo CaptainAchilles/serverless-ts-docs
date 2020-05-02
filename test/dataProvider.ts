@@ -107,6 +107,12 @@ export default [{
     expectedResult: baseExpectedResult("handlers/handler.imports.ts")
 },
 {
+    // Works with Pick
+    filePath: resolve(__dirname, "handlers/handler.pick.ts"),
+    identifier: "handler",
+    expectedResult: baseExpectedResult("handlers/handler.pick.ts")
+},
+{
     // Works with multiple generics
     filePath: resolve(__dirname, "handlers/handler.multipleGenerics.ts"),
     identifier: "handler",

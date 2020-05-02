@@ -64,24 +64,54 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
     if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node)) {
         const identifier = node.getChildren().find(x => ts.isIdentifier(x))!;
         // TODO: Get the type arguments from the alias?
-        const typeArguments = node.typeArguments;
+        const typeArguments = node.typeArguments
         const symbol = type.aliasSymbol || type.symbol;
-        if (symbol) {
-            const typeDeclaration = symbol.declarations[0];
-            if (ts.isTypeAliasDeclaration(typeDeclaration) || ts.isInterfaceDeclaration(typeDeclaration)) {
-                const localMembers = typeDeclaration.typeParameters;
-                if (typeArguments && localMembers && typeArguments.length === localMembers.length) {
-                    for (let i = 0; i < typeArguments.length; i++) {
-                        genericArgs.set(localMembers[i], typeArguments[i])
+        if (type.symbol) {
+            const symbol = type.symbol
+            if (symbol) {
+                const typeDeclaration = symbol.declarations[0];
+                if (ts.isTypeAliasDeclaration(typeDeclaration) || ts.isInterfaceDeclaration(typeDeclaration)) {
+                    const localMembers = typeDeclaration.typeParameters;
+                    if (typeArguments && localMembers && typeArguments.length === localMembers.length) {
+                        for (let i = 0; i < typeArguments.length; i++) {
+                            genericArgs.set(localMembers[i], typeArguments[i]);
+                        }
                     }
                 }
             }
+        }
+
+        if (type.aliasSymbol) {
+            const symbol = type.aliasSymbol;
+            if (symbol) {
+                const typeDeclaration = symbol.declarations[0];
+                if (ts.isTypeAliasDeclaration(typeDeclaration) || ts.isInterfaceDeclaration(typeDeclaration)) {
+                    const localMembers = typeDeclaration.typeParameters;
+                    if (typeArguments && localMembers && typeArguments.length === localMembers.length) {
+                        for (let i = 0; i < typeArguments.length; i++) {
+                            genericArgs.set(localMembers[i], typeArguments[i]);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (type.symbol || type.aliasSymbol) {
             extend(typeNodeSchema, serialiseType(typeChecker, identifier, genericArgs));
         }
     } else if (ts.isIdentifier(node)) {
         // Get the node type declaration
-        for (const declaration of (type.aliasSymbol || type.symbol).declarations) {
+        const symbol = typeChecker.getSymbolAtLocation(node);
+        if (!symbol) {
+            throw new Error("Oh no")
+        }
+        for (const declaration of symbol.declarations) {
             extend(typeNodeSchema, serialiseType(typeChecker, declaration, genericArgs));
+        }
+        if (type.symbol) {
+            for (const declaration of type.symbol.declarations) {
+                extend(typeNodeSchema, serialiseType(typeChecker, declaration, genericArgs));
+            }
         }
     }
     else if (ts.isTypeAliasDeclaration(node)) {
@@ -115,7 +145,7 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
                 enum: [+node.getText().replace(/"/gi, "")]
             }
         }
-        
+
         return {
             type: "string",
             enum: [node.getText().replace(/"/gi, "")]
@@ -172,6 +202,10 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
         const resultingObject = serialiseType(typeChecker, node.objectType, genericArgs) as { properties: any };
         return resultingObject.properties[lookupKey.enum[0]];
     }
+    else if (ts.isImportSpecifier(node)) {
+        // Don't need to handle this
+        return undefined;
+    }
     else {
         switch (node.kind) {
             case ts.SyntaxKind.StringKeyword:
@@ -192,6 +226,6 @@ function serialiseType(typeChecker: ts.TypeChecker, node: ts.Node, genericArgs: 
     if (Object.keys(typeNodeSchema).length) {
         return typeNodeSchema;
     }
-    
+
     return undefined
 }

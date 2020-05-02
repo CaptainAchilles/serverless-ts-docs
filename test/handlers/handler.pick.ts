@@ -81,19 +81,17 @@
 //     }
 // }
 type APIResponse<T> = {
-        statusCode: number;
-        body: T
+    statusCode: number;
+    bad: boolean;
+    body: T
 }
-type PickP<T, K extends keyof T> = { [P in K]: T[P] }
-type OmitP<T, K extends keyof any> = PickP<T, Exclude<keyof T, K>>;
-export const handler = (event: any): APIResponse<{ ss: number, sss: string, omitProperty: boolean}> => {
-//export const handler = (event: any): PickP<PickP<{ ss: number, sss: string, omitProperty: boolean}, "ss" | "sss" | "omitProperty">, "ss" | "sss"> => {
+export const handler = (event: any): APIResponse<Pick<{ ss: number, sss: string }, "ss" | "sss">> => {
     return {
         statusCode: 200,
+        bad: true,
         body: {
             ss: 12,
             sss: "asdf",
-            omitProperty: false,
         }
     }
 }
