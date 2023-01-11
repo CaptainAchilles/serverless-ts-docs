@@ -60,23 +60,44 @@ function serialiseType(typeChecker, node, genericArgs) {
     if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node)) {
         const identifier = node.getChildren().find(x => ts.isIdentifier(x));
         const typeArguments = node.typeArguments;
-        const symbol = type.aliasSymbol || type.symbol;
-        if (symbol) {
-            const typeDeclaration = symbol.declarations[0];
-            if (ts.isTypeAliasDeclaration(typeDeclaration) || ts.isInterfaceDeclaration(typeDeclaration)) {
-                const localMembers = typeDeclaration.typeParameters;
-                if (typeArguments && localMembers && typeArguments.length === localMembers.length) {
-                    for (let i = 0; i < typeArguments.length; i++) {
-                        genericArgs.set(localMembers[i], typeArguments[i]);
+        if (type.symbol) {
+            const symbol = type.symbol
+            if (symbol) {
+                const typeDeclaration = symbol.declarations[0];
+                if (ts.isTypeAliasDeclaration(typeDeclaration) || ts.isInterfaceDeclaration(typeDeclaration)) {
+                    const localMembers = typeDeclaration.typeParameters;
+                    if (typeArguments && localMembers && typeArguments.length === localMembers.length) {
+                        for (let i = 0; i < typeArguments.length; i++) {
+                            genericArgs.set(localMembers[i], typeArguments[i]);
+                        }
                     }
                 }
             }
+        }
+
+        if (type.aliasSymbol) {
+            const symbol = type.aliasSymbol;
+            if (symbol) {
+                const typeDeclaration = symbol.declarations[0];
+                if (ts.isTypeAliasDeclaration(typeDeclaration) || ts.isInterfaceDeclaration(typeDeclaration)) {
+                    const localMembers = typeDeclaration.typeParameters;
+                    if (typeArguments && localMembers && typeArguments.length === localMembers.length) {
+                        for (let i = 0; i < typeArguments.length; i++) {
+                            genericArgs.set(localMembers[i], typeArguments[i]);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (type.symbol || type.aliasSymbol) {
             deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, identifier, genericArgs));
         }
     }
     else if (ts.isIdentifier(node)) {
         // Get the node type declaration
-        for (const declaration of (type.aliasSymbol || type.symbol).declarations) {
+        const symbol = type.symbol || typeChecker.getSymbolAtLocation(node);
+        for (const declaration of symbol.declarations) {
             deep_extend_1.default(typeNodeSchema, serialiseType(typeChecker, declaration, genericArgs));
         }
     }
@@ -166,6 +187,9 @@ function serialiseType(typeChecker, node, genericArgs) {
         if (resultingObject.properties[lookupKey.enum[0]]) {
             return resultingObject.properties[lookupKey.enum[0]];
         }
+    }
+    else if (ts.isMappedTypeNode(node)) {
+        return serialiseType(typeChecker, node.type, genericArgs);
     }
     else {
         switch (node.kind) {
